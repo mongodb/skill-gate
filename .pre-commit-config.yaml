@@ -1,0 +1,14 @@
+# Local lint/format enforcement for skill-gate development.
+# Install once per clone:  pre-commit install   (or: make install-hooks)
+#
+# These hooks build golangci-lint from the pinned rev, so the local checks
+# match the version CI runs. Keep the rev in sync with .github/workflows/ci.yml
+# and the Makefile.
+repos:
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v2.10.1
+    hooks:
+      # gofumpt formatting (configured under formatters in .golangci.yml)
+      - id: golangci-lint-fmt
+      # static analysis (errcheck, govet, ineffassign, staticcheck, unused)
+      - id: golangci-lint

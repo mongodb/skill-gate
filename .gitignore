@@ -1,0 +1,11 @@
+# JetBrains IDE files
+.idea/
+
+# Binary
+skill-gate
+
+# Test reports
+coverage.out
+
+# LLM-as-judge result cache
+.gate_cache/
