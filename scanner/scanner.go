@@ -86,9 +86,10 @@ type Report struct {
 var markdownExts = map[string]bool{".md": true, ".markdown": true}
 
 // Scan evaluates the markdown content of the skill bundle at path and returns a
-// Report. path may be a directory (walked recursively) or a single markdown
-// file. The static stage is the only stage in this release; the verdict is the
-// max tier across all triggered rules, or AUTO-PASS when none fire.
+// Report. path may be a directory — walked recursively, scanning only its
+// markdown files — or a single file, which is scanned as given. The static
+// stage is the only stage in this release; the verdict is the max tier across
+// all triggered rules, or AUTO-PASS when none fire.
 func Scan(ctx context.Context, path string, cfg Config) (*Report, error) {
 	base := cfg.RulesFS
 	if base == nil {
@@ -141,7 +142,8 @@ type scanFile struct {
 }
 
 // markdownFiles returns the markdown files to scan under path. A single file is
-// returned as-is; a directory is walked recursively.
+// returned as-is — its extension is not checked, since the caller named it
+// explicitly — while a directory is walked recursively and filtered to markdown.
 func markdownFiles(path string) ([]scanFile, error) {
 	info, err := os.Stat(path)
 	if err != nil {

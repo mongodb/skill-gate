@@ -15,8 +15,9 @@ package rules
 
 import "embed"
 
-// FS is the read-only filesystem of built-in rule packs. Pass it to
-// rules.LoadFS to obtain the shipped packs.
+// FS is the read-only filesystem of built-in rule packs. The scanner loads it
+// by default; an embedder can override it with a different fs.FS via
+// scanner.Config.RulesFS.
 //
 //go:embed core mongodb
 var FS embed.FS

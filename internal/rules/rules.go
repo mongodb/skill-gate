@@ -50,8 +50,10 @@ type Rule struct {
 	// of them matches.
 	Patterns []Pattern `yaml:"patterns"`
 	// SuppressInDocExamples enables the cautionary-documentation heuristic for
-	// this rule: matches that sit in a context framed as "do not do this" are
-	// dropped. See package static.
+	// this rule: a match that sits in a context framed as "do not do this" is
+	// suppressed under a bound — an ESCALATE match downgrades to WARN and only a
+	// WARN match drops — so the heuristic can never turn a dangerous match into
+	// AUTO-PASS. See package static.
 	SuppressInDocExamples bool `yaml:"suppress_in_doc_examples"`
 	// Remediation is author-facing guidance shown with a finding. Optional.
 	Remediation string `yaml:"remediation,omitempty"`

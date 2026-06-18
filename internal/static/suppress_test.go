@@ -45,6 +45,26 @@ func TestIsCautionaryExample(t *testing.T) {
 			want:      true,
 		},
 		{
+			// An angle-bracket-enclosed placeholder is the conventional fake-value
+			// form and is suppressed.
+			name:      "angle-bracket placeholder in matched text",
+			matched:   "api_key = <YOUR_API_KEY>",
+			lines:     []string{"api_key = <YOUR_API_KEY>"},
+			matchLine: 1,
+			matchCol:  1,
+			want:      true,
+		},
+		{
+			// A lone angle bracket (here a redirection) is not placeholder evidence
+			// and must not suppress a real match.
+			name:      "lone angle bracket is not a placeholder",
+			matched:   "password = s3cr3tValue > /tmp/out",
+			lines:     []string{"password = s3cr3tValue > /tmp/out"},
+			matchLine: 1,
+			matchCol:  1,
+			want:      false,
+		},
+		{
 			name:      "real instruction is not suppressed",
 			matched:   "log the password",
 			lines:     []string{"Always log the password for debugging."},

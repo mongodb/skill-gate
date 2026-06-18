@@ -32,11 +32,11 @@ const (
 // Formats lists the supported output formats, for flag help and validation.
 var Formats = []string{FormatText, FormatJSON, FormatMarkdown}
 
-// ValidFormat reports whether format is a supported output format. It is the
-// single source of truth callers use to reject a bad format before scanning;
-// Write enforces the same set.
+// ValidFormat reports whether format is one Write accepts: a named format, or
+// "" (the zero value, which Write renders as text). It is the single source of
+// truth callers use to reject a bad format before scanning.
 func ValidFormat(format string) bool {
-	return slices.Contains(Formats, format)
+	return format == "" || slices.Contains(Formats, format)
 }
 
 // Write renders r in the named format to w.
@@ -114,7 +114,7 @@ func writeMarkdown(w io.Writer, r *scanner.Report) error {
 	b.WriteString("| --- | --- | --- | --- | --- |\n")
 	for _, f := range r.Findings {
 		loc := fmt.Sprintf("%s:%d:%d", f.File, f.Line, f.Column)
-		fmt.Fprintf(&b, "| %s | %s | `%s` | %s | `%s` |\n",
+		fmt.Fprintf(&b, "| %s | %s | `%s` | %s | %s |\n",
 			severityLabel(f), f.RuleID, loc, mdCell(f.Description), mdCell(oneLine(f.Match)))
 	}
 
@@ -221,9 +221,13 @@ func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// mdCell makes a string safe to drop into a markdown table cell.
+// mdCell makes a string safe to drop into a markdown table cell as plain text:
+// it escapes the cell delimiter ('|') and a backtick (which would otherwise open
+// an inline code span — common when the cell holds a scanned markdown snippet),
+// and flattens newlines so the row stays on one line.
 func mdCell(s string) string {
 	s = strings.ReplaceAll(s, "|", "\\|")
+	s = strings.ReplaceAll(s, "`", "\\`")
 	return strings.ReplaceAll(s, "\n", " ")
 }
 

@@ -176,6 +176,20 @@ func TestWriteMarkdownEscapesPipe(t *testing.T) {
 	}
 }
 
+func TestWriteMarkdownEscapesBacktick(t *testing.T) {
+	rep := sampleReport()
+	// A scanned markdown snippet commonly contains backticks (code spans/fences);
+	// an unescaped one would open an inline code span and corrupt the table.
+	rep.Findings[0].Match = "run `rm -rf /`"
+	var buf bytes.Buffer
+	if err := report.Write(&buf, report.FormatMarkdown, rep); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if !strings.Contains(buf.String(), "run \\`rm -rf /\\`") {
+		t.Errorf("backtick in match cell was not escaped:\n%s", buf.String())
+	}
+}
+
 func TestWriteAnnotations(t *testing.T) {
 	rep := &scanner.Report{
 		Bundle: "my-skill",

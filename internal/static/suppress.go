@@ -6,7 +6,10 @@
 
 package static
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // cautionaryIndicators frame a *preceding* line as introducing a negative
 // example ("Bad example:", "Anti-pattern:", "❌ Don't:"). They are matched only
@@ -48,8 +51,16 @@ var reaffirmers = []string{
 var placeholderMarkers = []string{
 	"your_", "your-", "example", "placeholder", "changeme", "change_me",
 	"change-me", "redacted", "dummy", "sample", "fake", "xxxx", "abc123",
-	"todo", "...", "<", ">",
+	"todo", "...",
 }
+
+// angleBracketPlaceholder matches an angle-bracket-enclosed placeholder token
+// such as <your-api-key> or <API_KEY>. This is deliberately tighter than
+// treating any stray "<" or ">" as a placeholder: a lone bracket — a shell
+// redirection (`>> /tmp/out`) or a comparison — no longer suppresses a match,
+// while the conventional <...> placeholder form still does. Like
+// placeholderMarkers, it is consulted only against the matched text itself.
+var angleBracketPlaceholder = regexp.MustCompile(`<[^<>\n]{1,40}>`)
 
 // cautionaryWindow is how many lines *above* the match to inspect for cautionary
 // framing. Cautionary lead-ins ("Never run the following:") precede the
@@ -89,7 +100,7 @@ func hasPlaceholderMarker(matched string) bool {
 			return true
 		}
 	}
-	return false
+	return angleBracketPlaceholder.MatchString(matched)
 }
 
 // matchLinePrefix returns the lower-cased text on the match line that precedes
