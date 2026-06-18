@@ -1,8 +1,8 @@
 # JetBrains IDE files
 .idea/
 
-# Binary
-skill-gate
+# Binary (root-anchored so it does not match the cmd/skill-gate/ source dir)
+/skill-gate
 
 # Test reports
 coverage.out

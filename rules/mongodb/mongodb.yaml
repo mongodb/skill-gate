@@ -1,0 +1,115 @@
+pack: mongodb
+version: 0.1.0
+
+# MongoDB- and database-domain rules. These encode checklist criteria whose risk
+# is defined relative to a database: mutating access control, exposing
+# connection strings, destructive database operations, and writing data outside
+# the intended target. They use MongoDB vocabulary (Atlas, the mongo shell,
+# aggregation stages) but also cover the SQL-shaped destructive statements a
+# database skill might reference. The pack is named "mongodb" rather than
+# "mongodb-atlas" because the surface extends beyond Atlas.
+#
+# Criteria that require semantic judgment (unsanitized $where input, admin-
+# command scope guards) are intentionally out of scope for static patterns and
+# are handled by the LLM-judge stage in follow-on work.
+rules:
+  # Criterion 6 (ESCALATE): instructs the agent to modify Atlas user roles,
+  # API keys, or access control lists.
+  - id: MDB-001
+    description: Modifies Atlas user roles, API keys, or access control lists
+    type: static_regex
+    severity: ESCALATE
+    criterion: 6
+    suppress_in_doc_examples: true
+    remediation: >-
+      Access-control changes must go through a reviewed, least-privilege path.
+      Do not instruct the agent to grant, revoke, or create Atlas roles, API
+      keys, or access-list entries as part of routine skill guidance.
+    patterns:
+      - pattern: '(?i)\batlas\s+(?:auth|accessLists?|access[ _-]?lists?|apiKeys?|api[ _-]?keys?|customDbRoles?|dbusers?|users?)\b'
+        confidence: 0.7
+      - pattern: '(?i)\b(?:grant|revoke|update|create|modify|delete|assign|escalate)\b[^.\n]{0,30}\b(?:atlas\s+)?(?:roles?|api\s*keys?|access\s*lists?|ip\s*access\s*list|permissions?|privileges?)\b'
+        confidence: 0.6
+      - pattern: '(?i)/api/atlas/v\d+/groups/[^\s]+/(?:databaseUsers|customDBRoles|accessList|apiKeys)'
+        confidence: 0.85
+      - pattern: '(?i)\bdb\.(?:createUser|updateUser|dropUser|grantRolesToUser|revokeRolesFromUser|createRole|dropRole|grantPrivilegesToRole|revokePrivilegesFromRole)\s*\('
+        confidence: 0.85
+
+  # Criterion 1 (ESCALATE): logging or embedding credentials in a MongoDB
+  # connection string.
+  - id: MDB-002
+    description: Exposes a MongoDB connection string with embedded credentials, or logs one
+    type: static_regex
+    severity: ESCALATE
+    criterion: 1
+    suppress_in_doc_examples: true
+    remediation: >-
+      Keep credentials out of the connection string in examples and guidance.
+      Use a credential-free mongodb+srv:// URI and supply the username and
+      password from the environment at connect time.
+    patterns:
+      - pattern: 'mongodb(?:\+srv)?://[^\s:/@]+:[^\s/@]+@'
+        confidence: 0.9
+      - pattern: '(?i)\b(?:log|print|echo|store|save|console\.log|display|output|expose)\b[^.\n]{0,40}mongodb(?:\+srv)?://'
+        confidence: 0.7
+
+  # Criterion 8 (ESCALATE): irreversible destructive mongo-shell operations. The
+  # platform-agnostic destructive forms (rm -rf, "delete everything") are in the
+  # core pack.
+  - id: MDB-003
+    description: Recommends irreversible destructive MongoDB operations (dropDatabase, drop, delete-all)
+    type: static_regex
+    severity: ESCALATE
+    criterion: 8
+    suppress_in_doc_examples: true
+    remediation: >-
+      Scope destructive operations to a confirmed target and require explicit
+      confirmation. Never delete with an empty filter ({}) or drop a database or
+      collection as part of unattended skill guidance.
+    patterns:
+      - pattern: '(?i)\bdb\.dropDatabase\s*\('
+        confidence: 0.85
+      - pattern: '(?i)\bdb\.[A-Za-z0-9_$]+\.drop\s*\(\s*\)'
+        confidence: 0.8
+      - pattern: '(?i)\bdb\.[A-Za-z0-9_$]+\.(?:deleteMany|remove)\s*\(\s*\{\s*\}\s*\)'
+        confidence: 0.85
+      - pattern: '(?i)\bdb\.[A-Za-z0-9_$]+\.dropIndexes?\s*\('
+        confidence: 0.6
+
+  # Criterion 3 (ESCALATE): aggregation stages that write outside the queried
+  # namespace.
+  - id: MDB-004
+    description: Uses an aggregation stage ($out / $merge) that writes outside the queried namespace
+    type: static_regex
+    severity: ESCALATE
+    criterion: 3
+    suppress_in_doc_examples: true
+    remediation: >-
+      Confirm that $out / $merge targets are intended and scoped. These stages
+      write data to another collection and can overwrite a namespace outside the
+      one the skill is meant to operate on.
+    patterns:
+      - pattern: '(?i)["\x27]?\$out["\x27]?\s*:'
+        confidence: 0.7
+      - pattern: '(?i)["\x27]?\$merge["\x27]?\s*:'
+        confidence: 0.65
+
+  # Criterion 3 (ESCALATE): writing data to a location outside the expected
+  # database target (the filesystem or an external endpoint). The "outside the
+  # database target" framing is database-specific, so this rule lives here
+  # rather than in the core pack.
+  - id: MDB-005
+    description: Writes data outside the database target (filesystem or external location)
+    type: static_regex
+    severity: ESCALATE
+    criterion: 3
+    suppress_in_doc_examples: true
+    remediation: >-
+      Constrain writes to the intended database target. Do not direct the agent
+      to persist query results or user data to the local filesystem or an
+      external location unless that is the skill's explicit, scoped purpose.
+    patterns:
+      - pattern: '(?i)\b(?:write|writes|writing|save|saves|saving|export|exports|dump|dumps|persist)\b[^.\n]{0,30}\bto\s+(?:a\s+|an\s+|the\s+)?(?:file|files|disk|local\s+file|the\s+filesystem|file\s*system|/tmp|/etc|/var|s3|a\s+bucket|external\s+\w+)\b'
+        confidence: 0.6
+      - pattern: '(?i)(?:>>?\s*/(?:tmp|etc|var|home|root)\b|\bfs\.writeFileSync?\b|\bwriteFile\b|\bopen\([^)\n]*["\x27][wa]b?["\x27])'
+        confidence: 0.55

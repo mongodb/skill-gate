@@ -5,10 +5,11 @@ bundle — not its code — for content that could steer an agent toward unsafe 
 It runs a skill's markdown through a YAML rule pack and produces a single verdict:
 **AUTO-PASS**, **WARN**, or **ESCALATE**.
 
-> **Status: early scaffold.** The command tree is not built out yet; this repo
-> currently holds the project structure, tooling, and architecture decisions. Usage
-> below describes the intended v1 surface and will become real as the package is
-> built.
+> **Status: stage 1 implemented.** The CLI (`scan`, `version`, `rules list`,
+> `rules lint`), the static-pattern engine, the `core` + `mongodb` rule packs,
+> and the full output surface needed to gate PRs in CI (`text`, `json`, `markdown`,
+> and GitHub Actions `--emit-annotations`) are working today. The LLM-as-judge stage
+> (stage 2) is forthcoming.
 
 ## Why it exists
 
@@ -23,11 +24,14 @@ not code logic.
 
 A two-stage pipeline over every markdown file in a skill bundle:
 
-1. **Static patterns** — regex rules for criteria with clear lexical signatures
-   (credential references, hardcoded secrets in examples, destructive verbs, external
-   URLs), with a heuristic that avoids flagging cautionary documentation examples.
-2. **LLM-as-judge** — rubric-based evaluation for criteria that need semantic
-   judgment (unsanitized user input, ambiguous scope, missing guardrails).
+1. **Static patterns** *(implemented)* — regex rules for criteria with clear lexical
+   signatures (credential references, hardcoded secrets in examples, destructive verbs,
+   external URLs), with a heuristic that *downgrades* matches reading as cautionary
+   documentation examples ("never log credentials") to an advisory WARN rather than
+   silently dropping them — so a real instruction disguised with cautionary phrasing
+   can never slip through to AUTO-PASS.
+2. **LLM-as-judge** *(forthcoming)* — rubric-based evaluation for criteria that need
+   semantic judgment (unsanitized user input, ambiguous scope, missing guardrails).
 
 Each rule declares a severity tier. The verdict is the highest tier any rule triggers:
 
@@ -46,35 +50,56 @@ go install github.com/mongodb/skill-gate/cmd/skill-gate@latest
 ## Usage
 
 ```sh
-# Scan a skill bundle
+# Scan a skill bundle (text output; exit code 0/1/2 = AUTO-PASS/WARN/ESCALATE)
 skill-gate scan ./my-skill/
 
-# Machine-readable output / PR comments / CI annotations
+# Machine-readable output / PR comment
 skill-gate scan ./my-skill/ -o json
 skill-gate scan ./my-skill/ -o markdown
+
+# CI: pin findings to lines in the PR diff via GitHub Actions annotations
 skill-gate scan ./my-skill/ --emit-annotations
 
-# Overlay your own rule packs
+# Treat WARN as a blocking exit code (per-repo CI policy)
+skill-gate scan ./my-skill/ --strict
+
+# Filter low-confidence noise: findings below the floor downgrade (ESCALATE→WARN) or drop (WARN)
+skill-gate scan ./my-skill/ --min-confidence 0.6
+
+# Choose which built-in packs run (default: all)
+skill-gate scan ./my-skill/ --packs core          # core only
+skill-gate scan ./my-skill/ --packs none --rules-dir ./rules.d/   # only your packs
+
+# Overlay your own rule packs (added on top of the selected built-ins)
 skill-gate scan ./my-skill/ --rules-dir ./rules.d/
+
+# Inspect and validate rule packs
+skill-gate rules list
+skill-gate rules lint --rules-dir ./rules.d/
 ```
 
-The LLM client is configured by environment:
+`--emit-annotations` writes GitHub Actions workflow commands (`::error` / `::warning`)
+to stdout in addition to the chosen `-o` format, so a CI job can both produce a report
+artifact and pin each finding to its line in the diff. The annotation paths are
+resolved relative to the directory the scan is launched from.
 
-| Variable | Purpose |
-|---|---|
-| `ANTHROPIC_API_KEY` | API key. |
-| `ANTHROPIC_BASE_URL` | API base URL (defaults to the public Anthropic API). |
-| `ANTHROPIC_AUTH_HEADER` | Auth header name (`x-api-key` default; `api-key` for gateway-fronted endpoints). |
+Once the LLM-as-judge stage lands, the LLM client will be configured by environment
+(`ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_HEADER`). The static stage
+needs no configuration.
 
 ## Extending it
 
 skill-gate is built to be reusable in other projects:
 
-- **Bring your own rules** — rule packs are plain YAML loaded via `--rules-dir`; no Go
-  required.
-- **Bring your own LLM client** — implement the `llm.Client` interface and wire it
-  into `scanner.Scan`. See `examples/custom-client/` for a supported, CI-built
-  example.
+- **Bring your own rules** *(available now)* — rule packs are plain YAML loaded via
+  `--rules-dir`; no Go required. Validate them with `skill-gate rules lint`.
+- **Choose your packs** *(available now)* — `--packs` selects which built-in packs run
+  (e.g. `--packs core` for a non-MongoDB repo, or `--packs none` to run only your own
+  overlays). The default runs every built-in pack.
+- **Embed the scanner** *(available now)* — call `scanner.Scan` and read the returned
+  `Report`. The `verdict` package is the stable vocabulary for tiers and exit codes.
+- **Bring your own LLM client** *(forthcoming)* — once stage 2 lands, implement the
+  `llm.Client` interface and wire it into `scanner.Scan`.
 
 See [`docs/architecture.md`](docs/architecture.md) for the package layout and the
 public API surface.

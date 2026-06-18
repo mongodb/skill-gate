@@ -1,0 +1,96 @@
+pack: core
+version: 0.1.0
+
+# Generic, domain-agnostic skill-safety rules. These cover the security
+# checklist criteria that apply to any agent-skills repository regardless of the
+# data platform: handling secrets, destroying the local environment, and calling
+# out to external services. Anything that presupposes a database — writing
+# "outside the database target", dropping tables/collections — lives in the
+# mongodb pack, not here.
+#
+# Every pattern carries a confidence in (0, 1]. Confidence feeds the per-tier
+# confidence floor (--min-confidence): a match below the floor for its tier is
+# downgraded (ESCALATE -> WARN) or dropped (WARN), and it breaks ties when
+# several patterns hit one line. It never changes the rule's declared severity —
+# that is fixed by the checklist criterion the rule encodes.
+rules:
+  # Criterion 1 (ESCALATE): instructs the agent to log, store, or transmit
+  # connection strings, credentials, or authentication tokens.
+  - id: CORE-001
+    description: Instructs the agent to mishandle live credentials at runtime (log, store, or transmit secrets, tokens, or connection strings)
+    type: static_regex
+    severity: ESCALATE
+    criterion: 1
+    suppress_in_doc_examples: true
+    remediation: >-
+      Never instruct the agent to persist or transmit secrets. Read credentials
+      from the environment or a secrets manager at point of use and keep them
+      out of logs, files, and outbound requests.
+    patterns:
+      - pattern: '(?i)\b(?:log|logging|store|stores|storing|save|saves|saving|print|prints|echo|write|writes|persist|cache|record|expose|transmit|send)\b[^.\n]{0,40}\b(?:password|passwd|secret|secrets|api[ _-]?keys?|access[ _-]?tokens?|auth(?:entication)?[ _-]?tokens?|bearer\s+tokens?|credentials?|connection\s+strings?)\b'
+        confidence: 0.8
+      - pattern: '(?i)\b(?:password|api[ _-]?keys?|access[ _-]?tokens?|credentials?|connection\s+strings?)\b[^.\n]{0,30}\bto\s+(?:the\s+|a\s+|an\s+)?(?:std(?:out|err)|console|logs?|a\s+log|a\s+file|disk|the\s+filesystem)\b'
+        confidence: 0.65
+
+  # Criterion 8 (ESCALATE): could cause the agent to take irreversible
+  # destructive actions without explicit confirmation. This rule covers the
+  # platform-agnostic forms — wiping the filesystem and "delete everything"
+  # phrasing. Destructive *database* operations (drop a collection, DROP TABLE)
+  # are MongoDB/SQL-shaped and live in the mongodb pack.
+  - id: CORE-002
+    description: Recommends irreversible destructive actions (rm -rf, deleting everything) without a confirmation guard
+    type: static_regex
+    severity: ESCALATE
+    criterion: 8
+    suppress_in_doc_examples: true
+    remediation: >-
+      Require an explicit confirmation step before any irreversible operation,
+      and scope destructive commands to a named target rather than "all" or the
+      whole filesystem.
+    patterns:
+      - pattern: '(?i)\brm\s+-[a-z]*r[a-z]*f'
+        confidence: 0.75
+      - pattern: '(?i)\b(?:delete|drop|purge|destroy|wipe|erase)\b[^.\n]{0,20}\b(?:all|everything|every\s+\w+|the\s+entire)\b'
+        confidence: 0.6
+
+  # Criterion 9 (ESCALATE): instructs the agent to call external URLs,
+  # webhooks, or third-party services.
+  - id: CORE-003
+    description: Instructs the agent to send data to external URLs, webhooks, or third-party services
+    type: static_regex
+    severity: ESCALATE
+    criterion: 9
+    suppress_in_doc_examples: true
+    remediation: >-
+      Remove instructions that send data to external endpoints. If an outbound
+      call is essential, document the endpoint's trust model and exactly what
+      data is transmitted so it can be reviewed.
+    patterns:
+      - pattern: '(?i)\b(?:post|posts|posting|send|sends|sending|upload|uploads|uploading|transmit|forward|forwards|exfiltrate|curl|wget)\b[^.\n]{0,40}\bhttps?://'
+        confidence: 0.65
+      - pattern: '(?i)\bwebhooks?\b'
+        confidence: 0.5
+      - pattern: '(?i)\b(?:call|calls|calling|invoke|invokes|request)\b[^.\n]{0,30}\b(?:external|third[ -]party|remote)\b[^.\n]{0,20}\b(?:url|endpoint|api|service|server)\b'
+        confidence: 0.55
+
+  # Criterion 10 (WARN): example code with hardcoded secrets, placeholder
+  # credentials, or sample connection strings.
+  - id: CORE-004
+    description: Embeds a literal secret value in example content (hardcoded key, token, or sample credential)
+    type: static_regex
+    severity: WARN
+    criterion: 10
+    suppress_in_doc_examples: true
+    remediation: >-
+      Replace literal secrets with a clearly fake placeholder (for example
+      <your-api-key> or YOUR_TOKEN_HERE) so no real-looking credential ships in
+      the skill's examples.
+    patterns:
+      - pattern: 'AKIA[0-9A-Z]{16}'
+        confidence: 0.9
+      - pattern: '-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----'
+        confidence: 0.95
+      - pattern: '(?i)\b(?:password|passwd|pwd|secret|api[ _-]?key|access[ _-]?key|token|client[ _-]?secret)\b\s*[:=]\s*["\x27]?[A-Za-z0-9+/=_\-]{8,}["\x27]?'
+        confidence: 0.6
+      - pattern: '(?i)\bBearer\s+[A-Za-z0-9\-._~+/]{12,}=*'
+        confidence: 0.7
