@@ -199,6 +199,9 @@ func position(content string, offset int, starts []int) (line, col int) {
 // It returns the tier to report at, whether that tier is a downgrade, and
 // whether the match should be dropped entirely.
 func (e *Engine) resolveTier(declared verdict.Severity, confidence float64, cautionary bool) (tier verdict.Severity, downgraded, drop bool) {
+	// A nil minConf map or a tier with no entry reads back the zero floor (0.0),
+	// so confidence < 0 is always false and the floor never suppresses — the safe
+	// default of reporting every match. Keep this read floor-permissive.
 	suppressed := cautionary || confidence < e.minConf[declared]
 	if !suppressed {
 		return declared, false, false

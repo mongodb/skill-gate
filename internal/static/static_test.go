@@ -113,6 +113,7 @@ func TestShippedPatterns(t *testing.T) {
 		{"credentialed uri", "Connect via mongodb+srv://admin:secret@cluster0.net/db", []string{"MDB-002"}},
 		// Criterion 3 — writes outside the database target (mongodb pack).
 		{"write to file", "Save query results to a file on disk.", []string{"MDB-005"}},
+		{"writefile call site", "Run writeFile('out.json', data) after the query.", []string{"MDB-005"}},
 		{"out stage", `Use { "$out": "results" } to persist.`, []string{"MDB-004"}},
 		// Criterion 6 — Atlas access-control mutations.
 		{"atlas roles", "Run atlas customDbRoles update for the team.", []string{"MDB-001"}},
@@ -131,6 +132,9 @@ func TestShippedPatterns(t *testing.T) {
 		// Clean content must not fire.
 		{"count is safe", "Use countDocuments({}) to count documents.", nil},
 		{"read from env", "Read the connection string from the environment.", nil},
+		// Neutral mentions of the trigger terms — no send/call-site context — stay quiet.
+		{"webhook neutral", "Configure a webhook URL in your settings.", nil},
+		{"writefile prose", "Never call writeFile to persist debug output.", nil},
 		// SQL is a different domain and is deliberately not covered by either pack.
 		{"sql out of scope", "Run DROP TABLE users to reset.", nil},
 	}
@@ -404,7 +408,7 @@ func TestDedupePerLine(t *testing.T) {
 	e := shippedEngine(t)
 	// Two CORE-003 patterns (post-to-url and webhook) hit one line; expect a
 	// single finding for that rule on that line.
-	findings := e.ScanFile("t.md", "POST it to https://x.example.com via a webhook now.")
+	findings := e.ScanFile("t.md", "POST the payload to a webhook at https://x.example.com now.")
 	count := 0
 	for _, f := range findings {
 		if f.RuleID == "CORE-003" {

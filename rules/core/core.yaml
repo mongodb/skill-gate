@@ -68,7 +68,10 @@ rules:
     patterns:
       - pattern: '(?i)\b(?:post|posts|posting|send|sends|sending|upload|uploads|uploading|transmit|forward|forwards|exfiltrate|curl|wget)\b[^.\n]{0,40}\bhttps?://'
         confidence: 0.65
-      - pattern: '(?i)\bwebhooks?\b'
+      # Require a send/trigger verb adjacent to "webhook" (on either side) so
+      # neutral mentions ("configure a webhook URL in settings") don't fire, while
+      # "post to a webhook" and "a webhook to notify the channel" still do.
+      - pattern: '(?i)(?:\b(?:post|posts|posting|send|sends|sending|trigger|triggers|triggering|call|calls|calling|notify|notifies|notifying|hit|hits|fire|fires|firing|deliver|delivers|push|pushes|forward|forwards)\b[^.\n]{0,30}\bwebhooks?\b|\bwebhooks?\b[^.\n]{0,30}\b(?:to\s+)?(?:post|posts|posting|send|sends|sending|notify|notifies|notifying|trigger|triggers|triggering|call|calls|calling|deliver|delivers|push|pushes|forward|forwards)\b)'
         confidence: 0.5
       - pattern: '(?i)\b(?:call|calls|calling|invoke|invokes|request)\b[^.\n]{0,30}\b(?:external|third[ -]party|remote)\b[^.\n]{0,20}\b(?:url|endpoint|api|service|server)\b'
         confidence: 0.55

@@ -111,5 +111,7 @@ rules:
     patterns:
       - pattern: '(?i)\b(?:write|writes|writing|save|saves|saving|export|exports|dump|dumps|persist)\b[^.\n]{0,30}\bto\s+(?:a\s+|an\s+|the\s+)?(?:file|files|disk|local\s+file|the\s+filesystem|file\s*system|/tmp|/etc|/var|s3|a\s+bucket|external\s+\w+)\b'
         confidence: 0.6
-      - pattern: '(?i)(?:>>?\s*/(?:tmp|etc|var|home|root)\b|\bfs\.writeFileSync?\b|\bwriteFile\b|\bopen\([^)\n]*["\x27][wa]b?["\x27])'
+      # writeFile is matched only as a call site (followed by "(") so neutral or
+      # negative mentions ("never call writeFile") don't fire.
+      - pattern: '(?i)(?:>>?\s*/(?:tmp|etc|var|home|root)\b|\bfs\.writeFile(?:Sync)?\b|\bwriteFile(?:Sync)?\s*\(|\bopen\([^)\n]*["\x27][wa]b?["\x27])'
         confidence: 0.55
