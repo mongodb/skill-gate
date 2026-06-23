@@ -91,6 +91,13 @@ func (p *Pack) compile() error {
 				return fmt.Errorf("rule %s: pattern %q: %w", r.ID, pat.Pattern, err)
 			}
 			pat.re = re
+			// Confidence is documented as (0, 1]. A literal 0 means "unset" and
+			// defaults to 1.0; anything outside the range is a malformed pack
+			// (it would distort the min-confidence floor and tie-breaking), so
+			// reject it here at the single load chokepoint.
+			if pat.Confidence < 0 || pat.Confidence > 1 {
+				return fmt.Errorf("rule %s: pattern %q: confidence %g out of range (0, 1]", r.ID, pat.Pattern, pat.Confidence)
+			}
 			if pat.Confidence == 0 {
 				pat.Confidence = 1.0
 			}

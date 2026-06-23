@@ -101,6 +101,16 @@ func TestLoadFSErrors(t *testing.T) {
 			"error parsing regexp",
 		},
 		{
+			"confidence above range",
+			"pack: t\nversion: 1\nrules:\n  - id: A\n    description: d\n    type: static_regex\n    severity: WARN\n    patterns:\n      - pattern: x\n        confidence: 1.5\n",
+			"out of range",
+		},
+		{
+			"confidence below range",
+			"pack: t\nversion: 1\nrules:\n  - id: A\n    description: d\n    type: static_regex\n    severity: WARN\n    patterns:\n      - pattern: x\n        confidence: -0.2\n",
+			"out of range",
+		},
+		{
 			"duplicate id in pack",
 			"pack: t\nversion: 1\nrules:\n  - id: A\n    description: d\n    type: static_regex\n    severity: WARN\n    patterns:\n      - pattern: x\n  - id: A\n    description: e\n    type: static_regex\n    severity: WARN\n    patterns:\n      - pattern: y\n",
 			"duplicate rule id",

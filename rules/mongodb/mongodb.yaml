@@ -5,9 +5,9 @@ version: 0.1.0
 # is defined relative to a database: mutating access control, exposing
 # connection strings, destructive database operations, and writing data outside
 # the intended target. They use MongoDB vocabulary (Atlas, the mongo shell,
-# aggregation stages) but also cover the SQL-shaped destructive statements a
-# database skill might reference. The pack is named "mongodb" rather than
-# "mongodb-atlas" because the surface extends beyond Atlas.
+# aggregation stages); SQL-shaped statements (DROP TABLE) are out of scope. The
+# pack is named "mongodb" rather than "mongodb-atlas" because the surface extends
+# beyond Atlas.
 #
 # Criteria that require semantic judgment (unsanitized $where input, admin-
 # command scope guards) are intentionally out of scope for static patterns and

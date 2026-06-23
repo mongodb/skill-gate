@@ -5,7 +5,7 @@ version: 0.1.0
 # checklist criteria that apply to any agent-skills repository regardless of the
 # data platform: handling secrets, destroying the local environment, and calling
 # out to external services. Anything that presupposes a database — writing
-# "outside the database target", dropping tables/collections — lives in the
+# "outside the database target", dropping collections — lives in the
 # mongodb pack, not here.
 #
 # Every pattern carries a confidence in (0, 1]. Confidence feeds the per-tier
@@ -35,8 +35,9 @@ rules:
   # Criterion 8 (ESCALATE): could cause the agent to take irreversible
   # destructive actions without explicit confirmation. This rule covers the
   # platform-agnostic forms — wiping the filesystem and "delete everything"
-  # phrasing. Destructive *database* operations (drop a collection, DROP TABLE)
-  # are MongoDB/SQL-shaped and live in the mongodb pack.
+  # phrasing. Destructive *database* operations (drop a collection) are
+  # MongoDB-shaped and live in the mongodb pack. SQL statements (DROP TABLE) are
+  # out of scope for the shipped packs.
   - id: CORE-002
     description: Recommends irreversible destructive actions (rm -rf, deleting everything) without a confirmation guard
     type: static_regex

@@ -76,14 +76,19 @@ func FromSeverities(severities []Severity) Verdict {
 	return v
 }
 
-// ExitCode maps a verdict to its committed process exit code.
+// ExitCode maps a verdict to its committed process exit code. AutoPass is
+// matched explicitly and any unrecognized verdict maps to ExitError: this is a
+// security tool, so a corrupted verdict must fail closed rather than report a
+// false success (exit 0).
 func (v Verdict) ExitCode() int {
 	switch v {
 	case Escalate:
 		return ExitEscalate
 	case Warn:
 		return ExitWarn
-	default:
+	case AutoPass:
 		return ExitAutoPass
+	default:
+		return ExitError
 	}
 }

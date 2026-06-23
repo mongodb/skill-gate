@@ -37,6 +37,9 @@ func TestVerdictExitCode(t *testing.T) {
 		{AutoPass, ExitAutoPass},
 		{Warn, ExitWarn},
 		{Escalate, ExitEscalate},
+		// An unrecognized verdict must fail closed (ExitError), never exit 0.
+		{Verdict("bogus"), ExitError},
+		{Verdict(""), ExitError},
 	}
 	for _, tt := range tests {
 		if got := tt.v.ExitCode(); got != tt.want {
