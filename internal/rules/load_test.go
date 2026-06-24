@@ -46,6 +46,66 @@ func TestLoadFSValid(t *testing.T) {
 	}
 }
 
+const llmPack = `pack: test
+version: 0.1.0
+rules:
+  - id: T-100
+    description: a judge rule
+    type: llm_judge
+    severity: ESCALATE
+    rubric: |
+      Determine whether the content does the bad thing.
+    exclusions:
+      - the content only warns against the bad thing
+    schema_ref: schemas/finding.json
+`
+
+const findingSchemaJSON = `{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["fired", "confidence", "rationale", "spans"],
+  "properties": {
+    "fired": {"type": "boolean"},
+    "confidence": {"type": "number"},
+    "rationale": {"type": "string"},
+    "spans": {"type": "array"}
+  }
+}`
+
+func TestLoadFSLLMJudgeValid(t *testing.T) {
+	fsys := fstest.MapFS{
+		"pack.yaml":            {Data: []byte(llmPack)},
+		"schemas/finding.json": {Data: []byte(findingSchemaJSON)},
+	}
+	packs, err := rules.LoadFS(fsys)
+	if err != nil {
+		t.Fatalf("LoadFS: %v", err)
+	}
+	if len(packs) != 1 || len(packs[0].Rules) != 1 {
+		t.Fatalf("unexpected packs: %+v", packs)
+	}
+	r := &packs[0].Rules[0]
+	if r.Type != rules.RuleTypeLLMJudge {
+		t.Errorf("rule type = %q, want %q", r.Type, rules.RuleTypeLLMJudge)
+	}
+	if len(r.SchemaBytes()) == 0 {
+		t.Error("schema bytes not loaded for llm_judge rule")
+	}
+	if len(r.Exclusions) != 1 {
+		t.Errorf("exclusions = %v, want one entry", r.Exclusions)
+	}
+}
+
+func TestLoadFSLLMJudgeBadSchema(t *testing.T) {
+	fsys := fstest.MapFS{
+		"pack.yaml":            {Data: []byte(llmPack)},
+		"schemas/finding.json": {Data: []byte(`{"type": 123}`)}, // not a valid schema
+	}
+	if _, err := rules.LoadFS(fsys); err == nil {
+		t.Error("expected a schema-compile error, got nil")
+	}
+}
+
 func TestLoadFSDefaultsConfidence(t *testing.T) {
 	body := strings.Replace(validPack, "        confidence: 0.5\n", "", 1)
 	packs, err := rules.LoadFS(mapFS(body))
@@ -82,8 +142,33 @@ func TestLoadFSErrors(t *testing.T) {
 		},
 		{
 			"unsupported rule type",
-			"pack: t\nversion: 1\nrules:\n  - id: A\n    description: d\n    type: llm_judge\n    severity: WARN\n    patterns:\n      - pattern: x\n",
+			"pack: t\nversion: 1\nrules:\n  - id: A\n    description: d\n    type: bogus_type\n    severity: WARN\n    patterns:\n      - pattern: x\n",
 			"unsupported type",
+		},
+		{
+			"llm_judge rule with patterns",
+			"pack: t\nversion: 1\nrules:\n  - id: A\n    description: d\n    type: llm_judge\n    severity: WARN\n    patterns:\n      - pattern: x\n",
+			"must not have patterns",
+		},
+		{
+			"llm_judge rule missing rubric",
+			"pack: t\nversion: 1\nrules:\n  - id: A\n    description: d\n    type: llm_judge\n    severity: WARN\n",
+			"needs a 'rubric'",
+		},
+		{
+			"llm_judge rule missing schema_ref",
+			"pack: t\nversion: 1\nrules:\n  - id: A\n    description: d\n    type: llm_judge\n    severity: WARN\n    rubric: judge this\n",
+			"needs a 'schema_ref'",
+		},
+		{
+			"static rule with judge fields",
+			"pack: t\nversion: 1\nrules:\n  - id: A\n    description: d\n    type: static_regex\n    severity: WARN\n    rubric: nope\n    patterns:\n      - pattern: x\n",
+			"must not set rubric",
+		},
+		{
+			"llm_judge schema_ref missing file",
+			"pack: t\nversion: 1\nrules:\n  - id: A\n    description: d\n    type: llm_judge\n    severity: WARN\n    rubric: judge this\n    schema_ref: nope.json\n",
+			"read schema",
 		},
 		{
 			"invalid severity",

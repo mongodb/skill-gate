@@ -8,11 +8,16 @@ version: 0.1.0
 # "outside the database target", dropping collections — lives in the
 # mongodb pack, not here.
 #
-# Every pattern carries a confidence in (0, 1]. Confidence feeds the per-tier
-# confidence floor (--min-confidence): a match below the floor for its tier is
-# downgraded (ESCALATE -> WARN) or dropped (WARN), and it breaks ties when
-# several patterns hit one line. It never changes the rule's declared severity —
-# that is fixed by the checklist criterion the rule encodes.
+# This pack holds both static_regex rules (stage 1) and llm_judge rules (stage 2,
+# below the static rules).
+#
+# Every static pattern carries a confidence in (0, 1]. That confidence feeds the
+# per-tier confidence floor (--min-confidence): a static match below the floor for
+# its tier is downgraded (ESCALATE -> WARN) or dropped (WARN), and it breaks ties
+# when several patterns hit one line. It never changes the rule's declared
+# severity — that is fixed by the checklist criterion the rule encodes. The floor
+# applies to static rules only; llm_judge confidence is the model's uncalibrated
+# self-report and does not gate a tier.
 rules:
   # Criterion 1 (ESCALATE): instructs the agent to log, store, or transmit
   # connection strings, credentials, or authentication tokens.
@@ -98,3 +103,101 @@ rules:
         confidence: 0.6
       - pattern: '(?i)\bBearer\s+[A-Za-z0-9\-._~+/]{12,}=*'
         confidence: 0.7
+
+  # ---------------------------------------------------------------------------
+  # Stage 2: LLM-as-judge rules. These cover checklist criteria whose risk is
+  # semantic — there is no reliable lexical signature, so a rubric-driven judge
+  # evaluates the prose. Each carries a rubric, optional "do not flag if"
+  # exclusions, and a schema_ref to the structured finding contract. Severity is
+  # fixed by the criterion, exactly as for static rules.
+  # ---------------------------------------------------------------------------
+
+  # Criterion 2 (ESCALATE): queries/commands built from user-supplied input
+  # without sanitization guidance.
+  - id: CORE-005
+    description: Builds queries or commands from user-supplied input without sanitization guidance
+    type: llm_judge
+    severity: ESCALATE
+    criterion: 2
+    schema_ref: schemas/llm-finding.json
+    remediation: >-
+      Tell the agent to parameterize or validate user input before it reaches a
+      query, shell command, or API call. Never interpolate untrusted input into
+      a command string without explicit sanitization guidance.
+    rubric: >-
+      Determine whether the skill instructs the agent to build, run, or template
+      a query, shell command, or API call from user-supplied or otherwise
+      untrusted input WITHOUT explicit guidance to parameterize, escape,
+      validate, or otherwise sanitize that input first. Fire only when untrusted
+      input flows into a query or command and the skill gives no sanitization or
+      parameterization guidance.
+    exclusions:
+      - the skill explicitly tells the agent to parameterize, escape, validate, or sanitize the input before using it
+      - the input is hardcoded or developer-controlled rather than user-supplied or untrusted
+      - the content only warns against unsafe input handling rather than instructing it
+
+  # Criterion 4 (ESCALATE): PII / sensitive / regulated data handled without
+  # explicit handling guidance.
+  - id: CORE-006
+    description: Handles PII, sensitive, or regulated data without explicit handling guidance
+    type: llm_judge
+    severity: ESCALATE
+    criterion: 4
+    schema_ref: schemas/llm-finding.json
+    remediation: >-
+      Add explicit handling guidance for sensitive data: minimize what is
+      collected, state how it is protected (encryption, access control,
+      retention), and call out any compliance obligations before the agent
+      stores or transmits it.
+    rubric: >-
+      Determine whether the skill encourages collecting, storing, logging, or
+      transmitting PII, sensitive personal data, or regulated data (health,
+      financial, or end-user credentials) WITHOUT explicit guidance on handling
+      it safely — data minimization, encryption, retention limits, access
+      control, or legal basis. Fire when such data handling is directed without
+      any protective guidance.
+    exclusions:
+      - the skill provides explicit handling guidance such as encryption, minimization, retention limits, access control, or compliance requirements
+      - no PII, sensitive, or regulated data is involved
+      - the content only cautions against mishandling such data
+
+  # Criterion 11 (WARN): scope ambiguous enough to be applied to unintended
+  # contexts.
+  - id: CORE-007
+    description: Skill scope is ambiguous enough to be applied to unintended contexts
+    type: llm_judge
+    severity: WARN
+    criterion: 11
+    schema_ref: schemas/llm-finding.json
+    remediation: >-
+      Tighten the scope language: state the intended environment, target, and
+      task boundaries so an agent cannot reasonably apply the guidance to
+      production, to the wrong system, or beyond its purpose.
+    rubric: >-
+      Determine whether the skill's scope is ambiguous enough that an agent could
+      reasonably apply its guidance to unintended contexts, environments, or
+      databases. Fire when the skill does not make clear where and when it
+      applies and a reasonable agent could over-apply it — for example to a
+      production system, to the wrong database, or beyond its stated task.
+    exclusions:
+      - the skill clearly bounds its scope (target environment, system, database, or task) so an agent would not over-apply it
+
+  # Criterion 12 (WARN): no guardrails, caveats, or non-application conditions.
+  - id: CORE-008
+    description: Skill specifies no guardrails, caveats, or conditions under which the guidance should not be applied
+    type: llm_judge
+    severity: WARN
+    criterion: 12
+    schema_ref: schemas/llm-finding.json
+    remediation: >-
+      Add guardrails: state preconditions, caveats, and the conditions under
+      which the guidance should NOT be applied, so an agent knows when to stop
+      or ask rather than proceeding unconditionally.
+    rubric: >-
+      Determine whether the skill specifies any guardrails, caveats,
+      preconditions, or conditions under which its guidance should NOT be
+      applied. Fire when the skill prescribes operational actions but states no
+      guardrails, caveats, or non-application conditions at all.
+    exclusions:
+      - the skill includes guardrails, caveats, preconditions, or explicit conditions under which the guidance should not be applied
+      - the skill is purely informational and prescribes no actions that would need guardrails

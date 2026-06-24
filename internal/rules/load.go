@@ -37,7 +37,7 @@ func LoadFS(fsys fs.FS) ([]Pack, error) {
 		if err != nil {
 			return fmt.Errorf("read %s: %w", p, err)
 		}
-		pack, err := parsePack(data, p)
+		pack, err := parsePack(fsys, data, p)
 		if err != nil {
 			return err
 		}
@@ -135,8 +135,10 @@ func LoadDir(dir string) ([]Pack, error) {
 	return LoadFS(os.DirFS(dir))
 }
 
-// parsePack unmarshals, compiles, and validates a single pack document.
-func parsePack(data []byte, source string) (*Pack, error) {
+// parsePack unmarshals, compiles, and validates a single pack document. fsys is
+// the filesystem the pack was read from, used to resolve each llm_judge rule's
+// schema_ref relative to the pack file.
+func parsePack(fsys fs.FS, data []byte, source string) (*Pack, error) {
 	var pack Pack
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -147,10 +149,39 @@ func parsePack(data []byte, source string) (*Pack, error) {
 	if err := pack.compile(); err != nil {
 		return nil, fmt.Errorf("compile %s: %w", source, err)
 	}
+	if err := pack.resolveSchemas(fsys); err != nil {
+		return nil, fmt.Errorf("load %s: %w", source, err)
+	}
 	if err := pack.Validate(); err != nil {
 		return nil, fmt.Errorf("validate %s: %w", source, err)
 	}
 	return &pack, nil
+}
+
+// resolveSchemas loads and compiles the JSON Schema referenced by each
+// llm_judge rule's schema_ref, relative to the pack file's directory. A rule
+// with no schema_ref is left for Validate to reject; a schema that cannot be
+// read or compiled fails the load.
+func (p *Pack) resolveSchemas(fsys fs.FS) error {
+	dir := path.Dir(p.Source)
+	for i := range p.Rules {
+		r := &p.Rules[i]
+		if r.Type != RuleTypeLLMJudge || strings.TrimSpace(r.SchemaRef) == "" {
+			continue
+		}
+		rel := path.Join(dir, r.SchemaRef)
+		data, err := fs.ReadFile(fsys, rel)
+		if err != nil {
+			return fmt.Errorf("rule %s: read schema %q: %w", r.ID, r.SchemaRef, err)
+		}
+		// Compile to validate the schema at load time (rules lint); the judge
+		// client recompiles it from these bytes at scan time.
+		if _, err := compileJSONSchema(data); err != nil {
+			return fmt.Errorf("rule %s: schema %q: %w", r.ID, r.SchemaRef, err)
+		}
+		r.schema = data
+	}
+	return nil
 }
 
 // Validate checks that a pack is well-formed: it has a name and version, and
@@ -172,17 +203,46 @@ func (p *Pack) Validate() error {
 			return fmt.Errorf("pack %s: rule #%d: missing 'id'", p.Name, i+1)
 		case strings.TrimSpace(r.Description) == "":
 			return fmt.Errorf("pack %s: rule %s: missing 'description'", p.Name, r.ID)
-		case r.Type != RuleTypeStaticRegex:
-			return fmt.Errorf("pack %s: rule %s: unsupported type %q (only %q is supported)", p.Name, r.ID, r.Type, RuleTypeStaticRegex)
+		case r.Type != RuleTypeStaticRegex && r.Type != RuleTypeLLMJudge:
+			return fmt.Errorf("pack %s: rule %s: unsupported type %q (want %q or %q)", p.Name, r.ID, r.Type, RuleTypeStaticRegex, RuleTypeLLMJudge)
 		case !r.Severity.Valid():
 			return fmt.Errorf("pack %s: rule %s: invalid severity %q (want %q or %q)", p.Name, r.ID, r.Severity, verdict.SeverityWarn, verdict.SeverityEscalate)
-		case len(r.Patterns) == 0:
-			return fmt.Errorf("pack %s: rule %s: a %s rule needs at least one pattern", p.Name, r.ID, RuleTypeStaticRegex)
+		}
+		if err := validateByType(p.Name, r); err != nil {
+			return err
 		}
 		if _, dup := seen[r.ID]; dup {
 			return fmt.Errorf("pack %s: duplicate rule id %s", p.Name, r.ID)
 		}
 		seen[r.ID] = struct{}{}
+	}
+	return nil
+}
+
+// validateByType enforces the per-type shape of a rule: a static_regex rule
+// needs at least one pattern and carries no judge fields; an llm_judge rule
+// needs a rubric and a schema_ref and carries no patterns. Keeping the two
+// shapes disjoint stops a pack from half-declaring a rule that neither stage
+// would run as intended.
+func validateByType(pack string, r *Rule) error {
+	switch r.Type {
+	case RuleTypeStaticRegex:
+		if len(r.Patterns) == 0 {
+			return fmt.Errorf("pack %s: rule %s: a %s rule needs at least one pattern", pack, r.ID, RuleTypeStaticRegex)
+		}
+		if r.Rubric != "" || r.SchemaRef != "" || len(r.Exclusions) > 0 {
+			return fmt.Errorf("pack %s: rule %s: a %s rule must not set rubric/exclusions/schema_ref", pack, r.ID, RuleTypeStaticRegex)
+		}
+	case RuleTypeLLMJudge:
+		if len(r.Patterns) > 0 {
+			return fmt.Errorf("pack %s: rule %s: an %s rule must not have patterns", pack, r.ID, RuleTypeLLMJudge)
+		}
+		if strings.TrimSpace(r.Rubric) == "" {
+			return fmt.Errorf("pack %s: rule %s: an %s rule needs a 'rubric'", pack, r.ID, RuleTypeLLMJudge)
+		}
+		if strings.TrimSpace(r.SchemaRef) == "" {
+			return fmt.Errorf("pack %s: rule %s: an %s rule needs a 'schema_ref'", pack, r.ID, RuleTypeLLMJudge)
+		}
 	}
 	return nil
 }

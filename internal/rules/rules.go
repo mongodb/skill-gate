@@ -13,17 +13,22 @@
 package rules
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"regexp"
 
 	"github.com/mongodb/skill-gate/verdict"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-// RuleTypeStaticRegex is the only rule type executed by the static stage. The
-// schema reserves room for other types (e.g. an LLM-judge stage), but loading a
-// pack that declares an unsupported type is an error today so that packs and
-// the engine that runs them stay in lockstep.
-const RuleTypeStaticRegex = "static_regex"
+// Rule types. static_regex rules run in stage 1 (package static); llm_judge
+// rules run in stage 2 (package judge). A pack declaring any other type is a
+// load error so packs and the stages that run them stay in lockstep.
+const (
+	RuleTypeStaticRegex = "static_regex"
+	RuleTypeLLMJudge    = "llm_judge"
+)
 
 // Pack is one named, versioned collection of rules, loaded from a single YAML
 // file.
@@ -46,9 +51,18 @@ type Rule struct {
 	// Criterion is the PM security-checklist number this rule encodes, retained
 	// for traceability back to the policy. Optional.
 	Criterion int `yaml:"criterion,omitempty"`
-	// Patterns are the regexes that trigger this rule; a rule fires when any one
-	// of them matches.
+	// Patterns are the regexes that trigger a static_regex rule; the rule fires
+	// when any one of them matches. Unused by llm_judge rules.
 	Patterns []Pattern `yaml:"patterns"`
+	// Rubric is the natural-language criterion an llm_judge rule applies. Unused
+	// by static_regex rules.
+	Rubric string `yaml:"rubric,omitempty"`
+	// Exclusions are "do not flag if …" conditions handed to the judge to keep an
+	// llm_judge rule from firing on benign content. Optional, llm_judge only.
+	Exclusions []string `yaml:"exclusions,omitempty"`
+	// SchemaRef is the path (relative to the pack file) of the JSON Schema the
+	// judge's response must satisfy. Required for llm_judge rules.
+	SchemaRef string `yaml:"schema_ref,omitempty"`
 	// SuppressInDocExamples enables the cautionary-documentation heuristic for
 	// this rule: a match that sits in a context framed as "do not do this" is
 	// suppressed under a bound — an ESCALATE match downgrades to WARN and only a
@@ -57,7 +71,17 @@ type Rule struct {
 	SuppressInDocExamples bool `yaml:"suppress_in_doc_examples"`
 	// Remediation is author-facing guidance shown with a finding. Optional.
 	Remediation string `yaml:"remediation,omitempty"`
+
+	// schema is the raw JSON Schema loaded from SchemaRef for an llm_judge rule.
+	// It is compiled (and so validated) during loading, then passed to the judge
+	// client at scan time. Not part of the YAML schema.
+	schema json.RawMessage `yaml:"-"`
 }
+
+// SchemaBytes returns the raw JSON Schema an llm_judge rule's response must
+// satisfy, or nil for a static_regex rule. Valid only after the owning pack has
+// loaded successfully.
+func (r *Rule) SchemaBytes() json.RawMessage { return r.schema }
 
 // Pattern is one regex with an associated confidence in (0, 1]. Confidence feeds
 // the per-tier confidence floor (scanner.Config.MinConfidence): a match whose
@@ -104,4 +128,24 @@ func (p *Pack) compile() error {
 		}
 	}
 	return nil
+}
+
+// compileJSONSchema parses and compiles a JSON Schema document. It is the single
+// chokepoint that turns a rule's schema_ref bytes into a runnable validator, so
+// a malformed schema surfaces at load time.
+func compileJSONSchema(data []byte) (*jsonschema.Schema, error) {
+	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("parse schema: %w", err)
+	}
+	compiler := jsonschema.NewCompiler()
+	const id = "skill-gate://rule-schema"
+	if err := compiler.AddResource(id, doc); err != nil {
+		return nil, fmt.Errorf("add schema resource: %w", err)
+	}
+	sch, err := compiler.Compile(id)
+	if err != nil {
+		return nil, fmt.Errorf("compile schema: %w", err)
+	}
+	return sch, nil
 }

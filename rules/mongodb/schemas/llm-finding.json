@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "skill-gate llm-judge finding",
+  "description": "The structured verdict an llm_judge rule's response must satisfy. It carries no severity: severity is a property of the rule, applied by the scanner.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["fired", "confidence", "rationale", "spans"],
+  "properties": {
+    "fired": {
+      "type": "boolean",
+      "description": "True only when the content violates the rule."
+    },
+    "confidence": {
+      "type": "number",
+      "description": "Confidence in the decision, between 0 and 1."
+    },
+    "rationale": {
+      "type": "string",
+      "description": "One or two sentences explaining the decision."
+    },
+    "spans": {
+      "type": "array",
+      "description": "Offending locations; empty when fired is false.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["line", "column", "text"],
+        "properties": {
+          "line": {"type": "integer", "description": "1-based line; 0 if unknown."},
+          "column": {"type": "integer", "description": "1-based column; 0 if unknown."},
+          "text": {"type": "string", "description": "The matched text."}
+        }
+      }
+    }
+  }
+}

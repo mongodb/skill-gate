@@ -37,8 +37,8 @@ func TestExecuteExitCodes(t *testing.T) {
 		args []string
 		want int
 	}{
-		{"clean bundle auto-passes", []string{"scan", clean}, verdict.ExitAutoPass},
-		{"unsafe bundle escalates", []string{"scan", unsafe}, verdict.ExitEscalate},
+		{"clean bundle auto-passes", []string{"scan", clean, "--static-only"}, verdict.ExitAutoPass},
+		{"unsafe bundle escalates", []string{"scan", unsafe, "--static-only"}, verdict.ExitEscalate},
 		{"missing bundle is a tool error", []string{"scan", filepath.Join(unsafe, "nope")}, verdict.ExitError},
 		{"unknown command is a tool error", []string{"bogus"}, verdict.ExitError},
 	}
@@ -157,7 +157,7 @@ func TestScanCommandEscalates(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bundle, "SKILL.md"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, err := runRoot(t, "scan", bundle, "-o", "json")
+	out, err := runRoot(t, "scan", bundle, "-o", "json", "--static-only")
 	var ece *exitCodeError
 	if !errors.As(err, &ece) || ece.code != verdict.ExitEscalate {
 		t.Fatalf("scan err = %v, want exitCodeError{2}", err)
@@ -173,7 +173,7 @@ func TestScanCommandEmitsAnnotations(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bundle, "SKILL.md"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, err := runRoot(t, "scan", bundle, "--emit-annotations")
+	out, err := runRoot(t, "scan", bundle, "--emit-annotations", "--static-only")
 	var ece *exitCodeError
 	if !errors.As(err, &ece) || ece.code != verdict.ExitEscalate {
 		t.Fatalf("scan err = %v, want exitCodeError{2}", err)
@@ -257,7 +257,7 @@ func TestScanCommandEmitsAnnotationsForSingleFile(t *testing.T) {
 	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, err := runRoot(t, "scan", file, "--emit-annotations")
+	out, err := runRoot(t, "scan", file, "--emit-annotations", "--static-only")
 	var ece *exitCodeError
 	if !errors.As(err, &ece) || ece.code != verdict.ExitEscalate {
 		t.Fatalf("scan err = %v, want exitCodeError{%d}", err, verdict.ExitEscalate)
@@ -309,7 +309,7 @@ func TestScanCommandMinConfidenceDowngrades(t *testing.T) {
 	}
 	// A maximal floor downgrades the ESCALATE finding to WARN: exit 1, not 2, and
 	// the finding is marked downgraded in the JSON.
-	out, err := runRoot(t, "scan", bundle, "-o", "json", "--min-confidence", "1.0")
+	out, err := runRoot(t, "scan", bundle, "-o", "json", "--min-confidence", "1.0", "--static-only")
 	var ece *exitCodeError
 	if !errors.As(err, &ece) || ece.code != verdict.ExitWarn {
 		t.Fatalf("scan err = %v, want exitCodeError{%d}", err, verdict.ExitWarn)
@@ -335,6 +335,57 @@ func TestConfidenceFloor(t *testing.T) {
 	got := confidenceFloor(0.6)
 	if got[verdict.SeverityWarn] != 0.6 || got[verdict.SeverityEscalate] != 0.6 {
 		t.Errorf("confidenceFloor(0.6) = %v, want both tiers 0.6", got)
+	}
+}
+
+// llmOverlay writes a one-rule llm_judge pack (and its schema) to a temp dir for
+// use as a --rules-dir overlay.
+func llmOverlay(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	pack := "pack: judgepack\nversion: 0.1.0\nrules:\n" +
+		"  - id: JUDGE-001\n    description: ambiguous scope\n    type: llm_judge\n    severity: ESCALATE\n" +
+		"    rubric: Is the scope ambiguous?\n    schema_ref: finding.json\n"
+	schema := `{"type":"object","additionalProperties":false,` +
+		`"required":["fired","confidence","rationale","spans"],` +
+		`"properties":{"fired":{"type":"boolean"},"confidence":{"type":"number"},` +
+		`"rationale":{"type":"string"},"spans":{"type":"array"}}}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.yaml"), []byte(pack), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "finding.json"), []byte(schema), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestScanCommandFailsClosedWithoutCreds(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "") // no client can be built
+	bundle := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bundle, "SKILL.md"), []byte("do something\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// --packs none disables built-ins; only the overlay llm_judge rule remains, so
+	// the scan must fail closed for lack of a client.
+	_, err := runRoot(t, "scan", bundle, "--packs", "none", "--rules-dir", llmOverlay(t))
+	if err == nil || !strings.Contains(err.Error(), "llm_judge rule") {
+		t.Errorf("err = %v, want a fail-closed error about llm_judge rules", err)
+	}
+}
+
+func TestScanCommandStaticOnlyOverridesFailClosed(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	bundle := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bundle, "SKILL.md"), []byte("do something\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Same overlay, but --static-only skips stage 2: clean AUTO-PASS, no error.
+	out, err := runRoot(t, "scan", bundle, "--packs", "none", "--rules-dir", llmOverlay(t), "--static-only", "-o", "json")
+	if err != nil {
+		t.Fatalf("static-only scan err = %v, want nil", err)
+	}
+	if !strings.Contains(out, `"verdict": "AUTO-PASS"`) {
+		t.Errorf("expected AUTO-PASS under --static-only:\n%s", out)
 	}
 }
 

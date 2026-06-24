@@ -291,6 +291,7 @@ func TestReaffirmedNegationStaysEscalate(t *testing.T) {
 	}
 	if got == nil {
 		t.Fatalf("CORE-003 not reported; the re-affirmed negation was wrongly suppressed")
+		return
 	}
 	if got.Downgraded || got.Severity != verdict.SeverityEscalate {
 		t.Errorf("finding = %+v, want full ESCALATE", *got)

@@ -115,3 +115,30 @@ rules:
       # negative mentions ("never call writeFile") don't fire.
       - pattern: '(?i)(?:>>?\s*/(?:tmp|etc|var|home|root)\b|\bfs\.writeFile(?:Sync)?\b|\bwriteFile(?:Sync)?\s*\(|\bopen\([^)\n]*["\x27][wa]b?["\x27])'
         confidence: 0.55
+
+  # Criterion 7 (WARN): administrative commands referenced without explicit
+  # scope or access guards. This is semantic — whether the access context is
+  # adequately specified is a judgment about the surrounding prose — so it is an
+  # llm_judge rule rather than a regex.
+  - id: MDB-006
+    description: References administrative commands without explicit scope or access guards
+    type: llm_judge
+    severity: WARN
+    criterion: 7
+    schema_ref: schemas/llm-finding.json
+    remediation: >-
+      State the access context for any administrative operation: which role,
+      cluster, and namespace it runs against, and under what authorization. Do
+      not present admin commands as routine steps without those guards.
+    rubric: >-
+      Determine whether the skill references MongoDB or Atlas administrative
+      commands or operations — for example replSetReconfig, setParameter, fsync,
+      killOp, shutdown, compact, server configuration, or other admin-only
+      actions — WITHOUT specifying the access context or scope guards under which
+      they may run (which role, cluster, or namespace, and under what
+      authorization). Fire when an administrative command is referenced without
+      explicit scope or access guidance.
+    exclusions:
+      - the skill specifies the access context and scope (role, cluster, namespace, or authorization) for the administrative command
+      - no administrative command or operation is referenced
+      - the content only warns against running administrative commands

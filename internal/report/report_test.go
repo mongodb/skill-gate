@@ -77,6 +77,59 @@ func TestWriteDowngradedLabel(t *testing.T) {
 	}
 }
 
+// judgeReport is a report with one llm-sourced finding: a rationale, no matched
+// snippet, and no line (the judge could not localize it).
+func judgeReport() *scanner.Report {
+	return &scanner.Report{
+		Bundle:       "my-skill",
+		Verdict:      verdict.Escalate,
+		FilesScanned: 1,
+		RulesApplied: 1,
+		Findings: []scanner.Finding{{
+			RuleID:      "CORE-101",
+			Pack:        "core",
+			Description: "ambiguous scope",
+			Severity:    verdict.SeverityEscalate,
+			File:        "SKILL.md",
+			Source:      "llm",
+			Rationale:   "the scope could apply to any database",
+		}},
+	}
+}
+
+func TestWriteTextJudgeFinding(t *testing.T) {
+	var buf bytes.Buffer
+	if err := report.Write(&buf, report.FormatText, judgeReport()); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	out := buf.String()
+	// No line means the location is just the file (no :0:0), the rationale shows
+	// as a "why:" line, and there is no empty "match:" line.
+	if strings.Contains(out, "SKILL.md:0") {
+		t.Errorf("expected file-only location for line 0, got:\n%s", out)
+	}
+	if !strings.Contains(out, "why:   the scope could apply to any database") {
+		t.Errorf("expected rationale 'why:' line:\n%s", out)
+	}
+	if strings.Contains(out, "match:") {
+		t.Errorf("expected no match line for a snippet-less finding:\n%s", out)
+	}
+}
+
+func TestWriteMarkdownJudgeFindingShowsRationale(t *testing.T) {
+	var buf bytes.Buffer
+	if err := report.Write(&buf, report.FormatMarkdown, judgeReport()); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "the scope could apply to any database") {
+		t.Errorf("expected rationale in the Evidence cell:\n%s", out)
+	}
+	if !strings.Contains(out, "| `SKILL.md` |") {
+		t.Errorf("expected file-only location cell for line 0:\n%s", out)
+	}
+}
+
 func TestWriteTextNoFindings(t *testing.T) {
 	var buf bytes.Buffer
 	rep := &scanner.Report{Bundle: "b", Verdict: verdict.AutoPass}
@@ -141,7 +194,7 @@ func TestWriteMarkdown(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"## skill-gate — ESCALATE",
-		"| Severity | Rule | Location | Finding | Match |",
+		"| Severity | Rule | Location | Finding | Evidence |",
 		"| ESCALATE | CORE-001 | `SKILL.md:3:1` |",
 		"<details><summary>How to fix</summary>",
 		"do not log secrets",

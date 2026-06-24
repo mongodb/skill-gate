@@ -203,13 +203,7 @@ func (e *Engine) resolveTier(declared verdict.Severity, confidence float64, caut
 	// so confidence < 0 is always false and the floor never suppresses — the safe
 	// default of reporting every match. Keep this read floor-permissive.
 	suppressed := cautionary || confidence < e.minConf[declared]
-	if !suppressed {
-		return declared, false, false
-	}
-	if declared == verdict.SeverityEscalate {
-		return verdict.SeverityWarn, true, false
-	}
-	return declared, false, true
+	return verdict.Bound(declared, suppressed)
 }
 
 // better reports whether candidate a should replace b as the kept finding for a
