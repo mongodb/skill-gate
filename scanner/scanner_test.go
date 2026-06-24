@@ -400,8 +400,8 @@ func TestScanFailsClosedWithoutClient(t *testing.T) {
 		RulesDir:    llmOverlayDir(t, verdict.SeverityEscalate),
 		// Client is nil and StaticOnly is false: must fail closed.
 	})
-	if err == nil || !strings.Contains(err.Error(), "llm_judge rule") {
-		t.Errorf("err = %v, want a fail-closed error mentioning llm_judge rules", err)
+	if !errors.Is(err, scanner.ErrNoLLMClient) {
+		t.Errorf("err = %v, want errors.Is(scanner.ErrNoLLMClient)", err)
 	}
 }
 

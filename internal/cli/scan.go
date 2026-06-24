@@ -67,6 +67,11 @@ func newScanCmd() *cobra.Command {
 				LLMConcurrency: llmConc,
 				LLMTimeout:     llmTimeout,
 			})
+			if errors.Is(err, scanner.ErrNoLLMClient) {
+				// Translate the provider-agnostic scanner error into guidance for
+				// this CLI's default Anthropic client.
+				return fmt.Errorf("the selected rule packs include llm_judge rules but no LLM client is configured: set ANTHROPIC_API_KEY (and ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_HEADER for a gateway), or pass --static-only to run only the static stage")
+			}
 			if err != nil {
 				return err
 			}

@@ -117,7 +117,10 @@ func (c *AnthropicClient) Judge(ctx context.Context, req JudgeRequest) (*JudgeRe
 	// A per-request nonce fences the untrusted skill content so embedded text
 	// cannot impersonate our instructions or the fence markers (see
 	// buildSystemPrompt / buildUserContent).
-	nonce := newNonce()
+	nonce, err := newNonce()
+	if err != nil {
+		return nil, fmt.Errorf("rule %s: %w", req.RuleID, err)
+	}
 	system := buildSystemPrompt(req, nonce)
 	user := buildUserContent(req, nonce)
 
@@ -270,11 +273,15 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// newNonce returns a short random hex string used to fence untrusted content.
-func newNonce() string {
+// newNonce returns a short random hex string used to fence untrusted content. A
+// read failure is surfaced (not ignored) so the fencing never silently degrades
+// to a predictable nonce; in practice crypto/rand.Read does not fail.
+func newNonce() (string, error) {
 	var b [8]byte
-	_, _ = rand.Read(b[:])
-	return hex.EncodeToString(b[:])
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("generate content-fence nonce: %w", err)
+	}
+	return hex.EncodeToString(b[:]), nil
 }
 
 // schemaFor compiles a schema, memoizing by its bytes so repeated (rule, file)

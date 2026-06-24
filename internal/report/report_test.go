@@ -116,6 +116,30 @@ func TestWriteTextJudgeFinding(t *testing.T) {
 	}
 }
 
+func TestWriteOmitsUnknownColumn(t *testing.T) {
+	// A judge finding localized to a line but not a column renders file:line, not
+	// file:line:0.
+	rep := judgeReport()
+	rep.Findings[0].Line = 7
+	rep.Findings[0].Column = 0
+
+	var text bytes.Buffer
+	if err := report.Write(&text, report.FormatText, rep); err != nil {
+		t.Fatalf("Write text: %v", err)
+	}
+	if !strings.Contains(text.String(), "SKILL.md:7 ") || strings.Contains(text.String(), "SKILL.md:7:0") {
+		t.Errorf("text location should be SKILL.md:7 (no :0):\n%s", text.String())
+	}
+
+	var md bytes.Buffer
+	if err := report.Write(&md, report.FormatMarkdown, rep); err != nil {
+		t.Fatalf("Write markdown: %v", err)
+	}
+	if !strings.Contains(md.String(), "`SKILL.md:7`") {
+		t.Errorf("markdown location should be `SKILL.md:7`:\n%s", md.String())
+	}
+}
+
 func TestWriteMarkdownJudgeFindingShowsRationale(t *testing.T) {
 	var buf bytes.Buffer
 	if err := report.Write(&buf, report.FormatMarkdown, judgeReport()); err != nil {

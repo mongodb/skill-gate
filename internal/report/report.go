@@ -215,14 +215,18 @@ func uniqueRemediations(findings []scanner.Finding) []remediation {
 	return out
 }
 
-// location renders a finding's position: file:line:column when the line is
-// known, or just the file when it is not (an llm finding the judge could not
-// pin to a line).
+// location renders a finding's position as far as it is known: file:line:column,
+// file:line when the column is unknown, or just the file when the line is too
+// (an llm finding the judge could not localize).
 func location(f scanner.Finding) string {
-	if f.Line > 0 {
+	switch {
+	case f.Line <= 0:
+		return f.File
+	case f.Column <= 0:
+		return fmt.Sprintf("%s:%d", f.File, f.Line)
+	default:
 		return fmt.Sprintf("%s:%d:%d", f.File, f.Line, f.Column)
 	}
-	return f.File
 }
 
 // severityLabel renders a finding's severity, noting when the cautionary-example

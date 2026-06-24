@@ -16,6 +16,7 @@ package scanner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -113,6 +114,13 @@ type Report struct {
 	Findings     []Finding       `json:"findings"`
 }
 
+// ErrNoLLMClient reports that the selected packs contain llm_judge rules but no
+// Config.Client was supplied and StaticOnly was not set. It is provider-agnostic
+// on purpose: the bring-your-own-client seam means the scanner cannot assume
+// Anthropic or any particular provider. Callers (e.g. the CLI) can match it with
+// errors.Is to add provider-specific guidance.
+var ErrNoLLMClient = errors.New("no LLM client configured for the LLM-judge stage")
+
 // markdown file extensions that constitute scannable skill content.
 var markdownExts = map[string]bool{".md": true, ".markdown": true}
 
@@ -177,7 +185,7 @@ func Scan(ctx context.Context, path string, cfg Config) (*Report, error) {
 		)
 		if n := je.RuleCount(); n > 0 {
 			if cfg.Client == nil {
-				return nil, fmt.Errorf("%d llm_judge rule(s) need an LLM client but none is configured: set ANTHROPIC_API_KEY, or skip stage 2 with --static-only (Config.StaticOnly)", n)
+				return nil, fmt.Errorf("%w: %d llm_judge rule(s) selected — set Config.Client or Config.StaticOnly", ErrNoLLMClient, n)
 			}
 			jfindings, err := je.ScanFiles(ctx, judgeFiles)
 			if err != nil {
