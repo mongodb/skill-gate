@@ -72,7 +72,7 @@ func writeText(w io.Writer, r *scanner.Report) error {
 	fmt.Fprintf(&b, "skill-gate: %s\n", r.Verdict)
 	fmt.Fprintf(&b, "  bundle:   %s\n", r.Bundle)
 	fmt.Fprintf(&b, "  scanned:  %d markdown file(s)\n", r.FilesScanned)
-	fmt.Fprintf(&b, "  rules:    %d static rule(s) applied\n", r.RulesApplied)
+	fmt.Fprintf(&b, "  rules:    %d rule(s) applied\n", r.RulesApplied)
 
 	if len(r.Findings) == 0 {
 		b.WriteString("\nNo findings.\n")

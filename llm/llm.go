@@ -58,7 +58,7 @@ type JudgeRequest struct {
 type JudgeResponse struct {
 	// Fired reports whether the content violates the rule.
 	Fired bool `json:"fired"`
-	// Confidence is the model's confidence in (0, 1].
+	// Confidence is the model's confidence in [0, 1].
 	Confidence float64 `json:"confidence"`
 	// Rationale is a short, author-facing explanation of the decision.
 	Rationale string `json:"rationale"`
