@@ -142,3 +142,32 @@ rules:
       - the skill specifies the access context and scope (role, cluster, namespace, or authorization) for the administrative command
       - no administrative command or operation is referenced
       - the content only warns against running administrative commands
+
+  # Criterion 5 (ESCALATE): recommends granting roles or permissions broader
+  # than the minimum the task requires. Whether a grant exceeds least privilege
+  # is a judgment about the task's actual needs versus what is granted — there is
+  # no lexical signature — so it is an llm_judge rule. (MDB-001 covers a
+  # different criterion by static pattern: modifying access control at all.)
+  - id: MDB-007
+    description: Recommends granting roles or permissions broader than the minimum the task requires
+    type: llm_judge
+    severity: ESCALATE
+    criterion: 5
+    schema_ref: schemas/llm-finding.json
+    remediation: >-
+      Grant the narrowest role that the task needs, scoped to the specific
+      database or collection it operates on. Do not recommend broad or
+      administrative roles (for example atlasAdmin or readWriteAnyDatabase) for
+      convenience when a more limited role would suffice.
+    rubric: >-
+      Determine whether the skill recommends granting a database user, role, or
+      API key broader privileges than the task actually requires — for example a
+      project- or cluster-wide administrative role, a "*AnyDatabase" role, or
+      reusing one highly privileged principal across unrelated tasks — when a
+      narrower, scoped role would suffice. Fire when the guidance steers toward
+      excess privilege for convenience rather than the least privilege the
+      described task needs.
+    exclusions:
+      - the skill grants only the minimum role needed and scopes it to the specific database, collection, or resource the task operates on
+      - the skill does not recommend granting any role, permission, or access at all
+      - the content only warns against over-privileged access rather than recommending it
