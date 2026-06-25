@@ -130,8 +130,10 @@ func TestScanFilesTruncatesMatchOnRuneBoundary(t *testing.T) {
 	// Here "€" is 3 bytes, so byte 200 falls mid-rune and the cut backs up to 199.
 	long := strings.Repeat("a", 199) + strings.Repeat("€", 50)
 	c := &fakeClient{fn: func(llm.JudgeRequest) (*llm.JudgeResponse, error) {
-		return &llm.JudgeResponse{Fired: true, Confidence: 0.9, Rationale: "x",
-			Spans: []llm.Span{{Line: 1, Column: 1, Text: long}}}, nil
+		return &llm.JudgeResponse{
+			Fired: true, Confidence: 0.9, Rationale: "x",
+			Spans: []llm.Span{{Line: 1, Column: 1, Text: long}},
+		}, nil
 	}}
 	e := judge.NewEngine(judgePack(t, "L-001", verdict.SeverityEscalate), c)
 	got, err := e.ScanFiles(context.Background(), []judge.File{{Path: "SKILL.md", Content: "only one line"}})
