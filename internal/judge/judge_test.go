@@ -10,9 +10,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"testing/fstest"
+	"unicode/utf8"
 
 	"github.com/mongodb/skill-gate/internal/judge"
 	"github.com/mongodb/skill-gate/internal/rules"
@@ -118,6 +120,36 @@ func TestScanFilesClampsOutOfRangeSpan(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Line != 0 || got[0].Column != 0 {
 		t.Errorf("expected clamped location 0:0, got %+v", got)
+	}
+}
+
+func TestScanFilesTruncatesMatchOnRuneBoundary(t *testing.T) {
+	// The model can return an arbitrarily long span; the finding's Match is capped
+	// at 200 bytes, and the cap must land on a rune boundary so a multibyte rune
+	// straddling the limit is dropped whole rather than split into invalid UTF-8.
+	// Here "€" is 3 bytes, so byte 200 falls mid-rune and the cut backs up to 199.
+	long := strings.Repeat("a", 199) + strings.Repeat("€", 50)
+	c := &fakeClient{fn: func(llm.JudgeRequest) (*llm.JudgeResponse, error) {
+		return &llm.JudgeResponse{Fired: true, Confidence: 0.9, Rationale: "x",
+			Spans: []llm.Span{{Line: 1, Column: 1, Text: long}}}, nil
+	}}
+	e := judge.NewEngine(judgePack(t, "L-001", verdict.SeverityEscalate), c)
+	got, err := e.ScanFiles(context.Background(), []judge.File{{Path: "SKILL.md", Content: "only one line"}})
+	if err != nil {
+		t.Fatalf("ScanFiles: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("findings = %d, want 1", len(got))
+	}
+	m := got[0].Match
+	if len(m) > 200 {
+		t.Errorf("match is %d bytes, want <= 200", len(m))
+	}
+	if !utf8.ValidString(m) {
+		t.Errorf("match is not valid UTF-8: %q", m)
+	}
+	if m != strings.Repeat("a", 199) {
+		t.Errorf("expected truncation at the rune boundary (199 'a's), got %q", m)
 	}
 }
 
