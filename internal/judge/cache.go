@@ -35,7 +35,7 @@ type Cache struct {
 }
 
 // NewCache returns a cache rooted at dir. The directory is created lazily on the
-// first Save.
+// first cache write (see save).
 func NewCache(dir string) *Cache { return &Cache{dir: dir} }
 
 // CacheEntry is one persisted judge result plus the metadata used to validate
