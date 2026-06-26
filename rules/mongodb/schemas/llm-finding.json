@@ -1,4 +1,5 @@
 {
+  "$comment": "rules/core/schemas/llm-finding.json and rules/mongodb/schemas/llm-finding.json are kept byte-for-byte identical (go:embed can't follow symlinks). Edit both; TestLLMFindingSchemasInSync fails closed on drift.",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "skill-gate llm-judge finding",
   "description": "The structured verdict an llm_judge rule's response must satisfy. It carries no severity: severity is a property of the rule, applied by the scanner.",
