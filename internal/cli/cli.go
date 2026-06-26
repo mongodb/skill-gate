@@ -86,6 +86,10 @@ func newRootCmd(version string) *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
+	// Setting Version makes cobra add the --version flag. Print just the bare
+	// version so --version matches the `version` subcommand's output.
+	root.Version = version
+	root.SetVersionTemplate("{{.Version}}\n")
 	root.AddCommand(newScanCmd(), newVersionCmd(version), newRulesCmd())
 	return root
 }

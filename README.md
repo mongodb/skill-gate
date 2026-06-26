@@ -140,6 +140,12 @@ make install-hooks   # install pre-commit hooks (requires the pre-commit framewo
 `golangci-lint` is the single source of truth for lint and format, shared by the
 pre-commit hook and CI.
 
+## Releasing
+
+skill-gate ships as a Go module — a release is just a pushed semver tag, with no
+build pipeline: installing at a tag compiles from source, and the binary reads
+its version from build info. See [RELEASING.md](RELEASING.md).
+
 ## License
 
 Licensed under the Apache License 2.0 — see [LICENSE](LICENSE).

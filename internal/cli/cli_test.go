@@ -120,6 +120,17 @@ func TestVersionCommand(t *testing.T) {
 	}
 }
 
+func TestVersionFlag(t *testing.T) {
+	out, err := runRoot(t, "--version")
+	if err != nil {
+		t.Fatalf("--version: %v", err)
+	}
+	// --version must match the `version` subcommand's bare output.
+	if strings.TrimSpace(out) != "testver" {
+		t.Errorf("--version output = %q, want %q", out, "testver")
+	}
+}
+
 func TestRulesLintCommand(t *testing.T) {
 	out, err := runRoot(t, "rules", "lint")
 	if err != nil {
