@@ -115,3 +115,59 @@ rules:
       # negative mentions ("never call writeFile") don't fire.
       - pattern: '(?i)(?:>>?\s*/(?:tmp|etc|var|home|root)\b|\bfs\.writeFile(?:Sync)?\b|\bwriteFile(?:Sync)?\s*\(|\bopen\([^)\n]*["\x27][wa]b?["\x27])'
         confidence: 0.55
+
+  # Criterion 7 (WARN): administrative commands referenced without explicit
+  # scope or access guards. This is semantic — whether the access context is
+  # adequately specified is a judgment about the surrounding prose — so it is an
+  # llm_judge rule rather than a regex.
+  - id: MDB-006
+    description: References administrative commands without explicit scope or access guards
+    type: llm_judge
+    severity: WARN
+    criterion: 7
+    schema_ref: schemas/llm-finding.json
+    remediation: >-
+      State the access context for any administrative operation: which role,
+      cluster, and namespace it runs against, and under what authorization. Do
+      not present admin commands as routine steps without those guards.
+    rubric: >-
+      Determine whether the skill references MongoDB or Atlas administrative
+      commands or operations — for example replSetReconfig, setParameter, fsync,
+      killOp, shutdown, compact, server configuration, or other admin-only
+      actions — WITHOUT specifying the access context or scope guards under which
+      they may run (which role, cluster, or namespace, and under what
+      authorization). Fire when an administrative command is referenced without
+      explicit scope or access guidance.
+    exclusions:
+      - the skill specifies the access context and scope (role, cluster, namespace, or authorization) for the administrative command
+      - no administrative command or operation is referenced
+      - the content only warns against running administrative commands
+
+  # Criterion 5 (ESCALATE): recommends granting roles or permissions broader
+  # than the minimum the task requires. Whether a grant exceeds least privilege
+  # is a judgment about the task's actual needs versus what is granted — there is
+  # no lexical signature — so it is an llm_judge rule. (MDB-001 covers a
+  # different criterion by static pattern: modifying access control at all.)
+  - id: MDB-007
+    description: Recommends granting roles or permissions broader than the minimum the task requires
+    type: llm_judge
+    severity: ESCALATE
+    criterion: 5
+    schema_ref: schemas/llm-finding.json
+    remediation: >-
+      Grant the narrowest role that the task needs, scoped to the specific
+      database or collection it operates on. Do not recommend broad or
+      administrative roles (for example atlasAdmin or readWriteAnyDatabase) for
+      convenience when a more limited role would suffice.
+    rubric: >-
+      Determine whether the skill recommends granting a database user, role, or
+      API key broader privileges than the task actually requires — for example a
+      project- or cluster-wide administrative role, a "*AnyDatabase" role, or
+      reusing one highly privileged principal across unrelated tasks — when a
+      narrower, scoped role would suffice. Fire when the guidance steers toward
+      excess privilege for convenience rather than the least privilege the
+      described task needs.
+    exclusions:
+      - the skill grants only the minimum role needed and scopes it to the specific database, collection, or resource the task operates on
+      - the skill does not recommend granting any role, permission, or access at all
+      - the content only warns against over-privileged access rather than recommending it

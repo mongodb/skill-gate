@@ -60,6 +60,36 @@ const (
 	ExitError = 3
 )
 
+// Bound applies skill-gate's central suppression invariant to a single match.
+// Given a rule's declared tier and whether some stage decided to suppress the
+// match (a cautionary-example heuristic, a confidence floor, or any future
+// axis), it returns the tier to report at, whether that is a downgrade, and
+// whether the match should be dropped entirely.
+//
+// The bound is the security guarantee that no suppression path can turn a
+// dangerous match into a silent AUTO-PASS: a suppressed ESCALATE downgrades to
+// WARN (still seen by a human), and only a suppressed WARN — which has no lower
+// tier — drops. The static stage routes its matches through here (both the
+// cautionary-example heuristic and the confidence floor). The LLM-judge stage
+// applies no suppression and so does not call Bound — a fired judge finding
+// always reports at its declared tier, which trivially satisfies the same
+// guarantee.
+func Bound(declared Severity, suppressed bool) (tier Severity, downgraded, drop bool) {
+	if !suppressed {
+		return declared, false, false
+	}
+	if declared == SeverityEscalate {
+		return SeverityWarn, true, false
+	}
+	if declared == SeverityWarn {
+		return declared, false, true
+	}
+	// Any other tier (incl. a future one) is kept at its declared level rather
+	// than dropped: for a security boundary, an unexpected suppressed match must
+	// stay visible, never silently vanish.
+	return declared, false, false
+}
+
 // FromSeverities returns the max-tier verdict across the severities of the
 // rules that triggered. The ordering is AutoPass < Warn < Escalate: any
 // Escalate wins, otherwise any Warn wins, otherwise AutoPass.

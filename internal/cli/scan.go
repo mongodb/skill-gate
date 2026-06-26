@@ -7,12 +7,15 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mongodb/skill-gate/internal/report"
+	"github.com/mongodb/skill-gate/llm"
 	"github.com/mongodb/skill-gate/scanner"
 	"github.com/mongodb/skill-gate/verdict"
 	"github.com/spf13/cobra"
@@ -26,6 +29,11 @@ func newScanCmd() *cobra.Command {
 		strict      bool
 		annotations bool
 		minConf     float64
+		staticOnly  bool
+		llmModel    string
+		cacheDir    string
+		llmConc     int
+		llmTimeout  time.Duration
 	)
 	cmd := &cobra.Command{
 		Use:   "scan <bundle>",
@@ -45,11 +53,25 @@ func newScanCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			client, err := judgeClient(staticOnly, llmModel)
+			if err != nil {
+				return err
+			}
 			rep, err := scanner.Scan(cmd.Context(), args[0], scanner.Config{
-				EnablePacks:   enabled,
-				RulesDir:      rulesDir,
-				MinConfidence: confidenceFloor(minConf),
+				EnablePacks:    enabled,
+				RulesDir:       rulesDir,
+				MinConfidence:  confidenceFloor(minConf),
+				Client:         client,
+				StaticOnly:     staticOnly,
+				CacheDir:       cacheDir,
+				LLMConcurrency: llmConc,
+				LLMTimeout:     llmTimeout,
 			})
+			if errors.Is(err, scanner.ErrNoLLMClient) {
+				// Translate the provider-agnostic scanner error into guidance for
+				// this CLI's default Anthropic client.
+				return fmt.Errorf("the selected rule packs include llm_judge rules but no LLM client is configured: set ANTHROPIC_API_KEY (and ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_HEADER for a gateway), or pass --static-only to run only the static stage")
+			}
 			if err != nil {
 				return err
 			}
@@ -77,8 +99,31 @@ func newScanCmd() *cobra.Command {
 	cmd.Flags().StringVar(&packs, "packs", "", packsFlagUsage)
 	cmd.Flags().BoolVar(&strict, "strict", false, "treat WARN as a blocking (ESCALATE-level) exit code")
 	cmd.Flags().BoolVar(&annotations, "emit-annotations", false, "also emit GitHub Actions workflow-command annotations to stdout")
-	cmd.Flags().Float64Var(&minConf, "min-confidence", 0, "suppress static findings below this confidence floor (0-1): ESCALATE findings below it downgrade to WARN, WARN findings drop")
+	cmd.Flags().Float64Var(&minConf, "min-confidence", 0, "suppress static findings below this confidence floor (0-1): ESCALATE downgrades to WARN, WARN drops (does not apply to llm_judge findings)")
+	cmd.Flags().BoolVar(&staticOnly, "static-only", false, "skip the LLM-as-judge stage; run only static rules (no LLM client required)")
+	cmd.Flags().StringVar(&llmModel, "llm-model", llm.DefaultModel, "model id for the LLM-as-judge stage")
+	cmd.Flags().StringVar(&cacheDir, "cache-dir", "", "enable the judge result cache in this directory (off by default; in CI use an ephemeral path and never commit it)")
+	cmd.Flags().IntVar(&llmConc, "llm-concurrency", 0, "max concurrent LLM calls (0 = default)")
+	cmd.Flags().DurationVar(&llmTimeout, "llm-timeout", 0, "per-call timeout for LLM requests (0 = none)")
 	return cmd
+}
+
+// judgeClient builds the default Anthropic client for stage 2 from the
+// environment. With --static-only it returns nil (stage 2 is skipped). Missing
+// credentials are not fatal here: a nil client lets the scanner fail closed with
+// a clear message only if the selected packs actually contain llm_judge rules.
+func judgeClient(staticOnly bool, model string) (llm.Client, error) {
+	if staticOnly {
+		return nil, nil
+	}
+	c, err := llm.NewAnthropicFromEnv(model)
+	if errors.Is(err, llm.ErrNoCredentials) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 // confidenceFloor turns the single --min-confidence value into the per-tier map

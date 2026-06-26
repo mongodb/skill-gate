@@ -8,6 +8,7 @@ package scanner_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,13 +16,14 @@ import (
 	"testing"
 
 	"github.com/mongodb/skill-gate/internal/rules"
+	"github.com/mongodb/skill-gate/llm"
 	builtinpacks "github.com/mongodb/skill-gate/rules"
 	"github.com/mongodb/skill-gate/scanner"
 	"github.com/mongodb/skill-gate/verdict"
 )
 
 func TestScanUnsafeBundle(t *testing.T) {
-	rep, err := scanner.Scan(context.Background(), "../testdata/unsafe-backup-skill", scanner.Config{})
+	rep, err := scanner.Scan(context.Background(), "../testdata/unsafe-backup-skill", scanner.Config{StaticOnly: true})
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -51,7 +53,7 @@ func TestScanUnsafeBundle(t *testing.T) {
 }
 
 func TestScanCleanBundle(t *testing.T) {
-	rep, err := scanner.Scan(context.Background(), "../testdata/safe-reporting-skill", scanner.Config{})
+	rep, err := scanner.Scan(context.Background(), "../testdata/safe-reporting-skill", scanner.Config{StaticOnly: true})
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -64,7 +66,7 @@ func TestScanCleanBundle(t *testing.T) {
 }
 
 func TestScanWarnOnlyBundle(t *testing.T) {
-	rep, err := scanner.Scan(context.Background(), "../testdata/warn-hardcoded-secret-skill", scanner.Config{})
+	rep, err := scanner.Scan(context.Background(), "../testdata/warn-hardcoded-secret-skill", scanner.Config{StaticOnly: true})
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -74,7 +76,7 @@ func TestScanWarnOnlyBundle(t *testing.T) {
 }
 
 func TestScanSingleFile(t *testing.T) {
-	rep, err := scanner.Scan(context.Background(), "../testdata/safe-reporting-skill/SKILL.md", scanner.Config{})
+	rep, err := scanner.Scan(context.Background(), "../testdata/safe-reporting-skill/SKILL.md", scanner.Config{StaticOnly: true})
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -103,7 +105,7 @@ rules:
 	if err := os.WriteFile(filepath.Join(bundle, "SKILL.md"), []byte("Connect to db.internal.corp.local for data.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	rep, err := scanner.Scan(context.Background(), bundle, scanner.Config{RulesDir: dir})
+	rep, err := scanner.Scan(context.Background(), bundle, scanner.Config{RulesDir: dir, StaticOnly: true})
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -113,7 +115,7 @@ rules:
 }
 
 func TestScanEnablePacksCoreOnly(t *testing.T) {
-	rep, err := scanner.Scan(context.Background(), "../testdata/unsafe-backup-skill", scanner.Config{EnablePacks: []string{"core"}})
+	rep, err := scanner.Scan(context.Background(), "../testdata/unsafe-backup-skill", scanner.Config{EnablePacks: []string{"core"}, StaticOnly: true})
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -149,6 +151,7 @@ func TestScanMinConfidence(t *testing.T) {
 	// every dangerous match to WARN — the verdict drops to WARN, never AUTO-PASS.
 	rep, err := scanner.Scan(context.Background(), "../testdata/unsafe-backup-skill", scanner.Config{
 		MinConfidence: map[verdict.Severity]float64{verdict.SeverityEscalate: 1.0},
+		StaticOnly:    true,
 	})
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
@@ -169,13 +172,13 @@ func TestScanMinConfidence(t *testing.T) {
 func TestScanContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := scanner.Scan(ctx, "../testdata/unsafe-backup-skill", scanner.Config{}); err == nil {
+	if _, err := scanner.Scan(ctx, "../testdata/unsafe-backup-skill", scanner.Config{StaticOnly: true}); err == nil {
 		t.Error("expected error from canceled context, got nil")
 	}
 }
 
 func TestScanMissingBundle(t *testing.T) {
-	if _, err := scanner.Scan(context.Background(), "../testdata/does-not-exist", scanner.Config{}); err == nil {
+	if _, err := scanner.Scan(context.Background(), "../testdata/does-not-exist", scanner.Config{StaticOnly: true}); err == nil {
 		t.Error("expected error for missing bundle, got nil")
 	}
 }
@@ -196,7 +199,7 @@ func TestScanSortsFindingsWithinFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bundle, "SKILL.md"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	rep, err := scanner.Scan(context.Background(), bundle, scanner.Config{})
+	rep, err := scanner.Scan(context.Background(), bundle, scanner.Config{StaticOnly: true})
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -269,7 +272,7 @@ func TestRulesFireInIntendedBundle(t *testing.T) {
 
 	// Each bundle fires exactly the rules it claims.
 	for bundle, want := range rulesByBundle {
-		rep, err := scanner.Scan(context.Background(), filepath.Join("../testdata", bundle), scanner.Config{})
+		rep, err := scanner.Scan(context.Background(), filepath.Join("../testdata", bundle), scanner.Config{StaticOnly: true})
 		if err != nil {
 			t.Errorf("scan %s: %v", bundle, err)
 			continue
@@ -296,7 +299,7 @@ func TestRulesFireInIntendedBundle(t *testing.T) {
 // not silently AUTO-PASS (the old behavior) — every dangerous-looking match is
 // downgraded to an advisory WARN that a human still sees.
 func TestCautionaryContentDowngradedNotDropped(t *testing.T) {
-	rep, err := scanner.Scan(context.Background(), "../testdata/cautionary-docs-skill", scanner.Config{})
+	rep, err := scanner.Scan(context.Background(), "../testdata/cautionary-docs-skill", scanner.Config{StaticOnly: true})
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -313,6 +316,119 @@ func TestCautionaryContentDowngradedNotDropped(t *testing.T) {
 		if f.Severity != verdict.SeverityWarn {
 			t.Errorf("downgraded finding %s severity = %q, want WARN", f.RuleID, f.Severity)
 		}
+	}
+}
+
+// fakeJudge is a stub llm.Client for the stage-2 wiring tests.
+type fakeJudge struct {
+	resp *llm.JudgeResponse
+	err  error
+}
+
+func (f fakeJudge) Judge(context.Context, llm.JudgeRequest) (*llm.JudgeResponse, error) {
+	return f.resp, f.err
+}
+
+// llmOverlayDir writes a one-rule llm_judge pack (plus its schema) to a temp dir
+// usable as a --rules-dir overlay. Built-ins are disabled in these tests so only
+// this rule runs through the judge.
+func llmOverlayDir(t *testing.T, severity verdict.Severity) string {
+	t.Helper()
+	dir := t.TempDir()
+	pack := "pack: judgepack\nversion: 0.1.0\nrules:\n" +
+		"  - id: JUDGE-001\n    description: ambiguous scope\n    type: llm_judge\n    severity: " + string(severity) + "\n" +
+		"    rubric: Is the scope ambiguous?\n    schema_ref: finding.json\n"
+	schema := `{"type":"object","additionalProperties":false,` +
+		`"required":["fired","confidence","rationale","spans"],` +
+		`"properties":{"fired":{"type":"boolean"},"confidence":{"type":"number"},` +
+		`"rationale":{"type":"string"},"spans":{"type":"array"}}}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.yaml"), []byte(pack), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "finding.json"), []byte(schema), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestScanJudgeStageEscalates(t *testing.T) {
+	client := fakeJudge{resp: &llm.JudgeResponse{Fired: true, Confidence: 0.9, Rationale: "scope unclear", Spans: []llm.Span{{Line: 1, Column: 1, Text: "x"}}}}
+	rep, err := scanner.Scan(context.Background(), "../testdata/safe-reporting-skill", scanner.Config{
+		EnablePacks: []string{}, // built-ins off; only the overlay judge rule runs
+		RulesDir:    llmOverlayDir(t, verdict.SeverityEscalate),
+		Client:      client,
+	})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if rep.Verdict != verdict.Escalate {
+		t.Errorf("verdict = %q, want ESCALATE; findings: %+v", rep.Verdict, rep.Findings)
+	}
+	var found *scanner.Finding
+	for i := range rep.Findings {
+		if rep.Findings[i].RuleID == "JUDGE-001" {
+			found = &rep.Findings[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("JUDGE-001 did not fire; findings: %+v", rep.Findings)
+		return
+	}
+	if found.Source != "llm" || found.Rationale != "scope unclear" {
+		t.Errorf("judge finding = %+v, want source=llm with rationale", *found)
+	}
+}
+
+func TestScanJudgeNotFiredAutoPasses(t *testing.T) {
+	client := fakeJudge{resp: &llm.JudgeResponse{Fired: false, Confidence: 0.1}}
+	rep, err := scanner.Scan(context.Background(), "../testdata/safe-reporting-skill", scanner.Config{
+		EnablePacks: []string{},
+		RulesDir:    llmOverlayDir(t, verdict.SeverityEscalate),
+		Client:      client,
+	})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if rep.Verdict != verdict.AutoPass || len(rep.Findings) != 0 {
+		t.Errorf("verdict = %q with %d findings, want clean AUTO-PASS", rep.Verdict, len(rep.Findings))
+	}
+}
+
+func TestScanFailsClosedWithoutClient(t *testing.T) {
+	_, err := scanner.Scan(context.Background(), "../testdata/safe-reporting-skill", scanner.Config{
+		EnablePacks: []string{},
+		RulesDir:    llmOverlayDir(t, verdict.SeverityEscalate),
+		// Client is nil and StaticOnly is false: must fail closed.
+	})
+	if !errors.Is(err, scanner.ErrNoLLMClient) {
+		t.Errorf("err = %v, want errors.Is(scanner.ErrNoLLMClient)", err)
+	}
+}
+
+func TestScanStaticOnlySkipsJudge(t *testing.T) {
+	// StaticOnly with no client must not fail closed and must not run the judge.
+	rep, err := scanner.Scan(context.Background(), "../testdata/safe-reporting-skill", scanner.Config{
+		EnablePacks: []string{},
+		RulesDir:    llmOverlayDir(t, verdict.SeverityEscalate),
+		StaticOnly:  true,
+	})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if rep.Verdict != verdict.AutoPass || rep.RulesApplied != 0 {
+		t.Errorf("static-only scan = verdict %q, RulesApplied %d; want AUTO-PASS / 0", rep.Verdict, rep.RulesApplied)
+	}
+}
+
+func TestScanJudgeFailClosedOnClientError(t *testing.T) {
+	client := fakeJudge{err: errors.New("upstream down")}
+	_, err := scanner.Scan(context.Background(), "../testdata/safe-reporting-skill", scanner.Config{
+		EnablePacks: []string{},
+		RulesDir:    llmOverlayDir(t, verdict.SeverityEscalate),
+		Client:      client,
+	})
+	if err == nil {
+		t.Error("expected scan to fail closed on client error, got nil")
 	}
 }
 

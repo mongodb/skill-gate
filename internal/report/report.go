@@ -72,7 +72,7 @@ func writeText(w io.Writer, r *scanner.Report) error {
 	fmt.Fprintf(&b, "skill-gate: %s\n", r.Verdict)
 	fmt.Fprintf(&b, "  bundle:   %s\n", r.Bundle)
 	fmt.Fprintf(&b, "  scanned:  %d markdown file(s)\n", r.FilesScanned)
-	fmt.Fprintf(&b, "  rules:    %d static rule(s) applied\n", r.RulesApplied)
+	fmt.Fprintf(&b, "  rules:    %d rule(s) applied\n", r.RulesApplied)
 
 	if len(r.Findings) == 0 {
 		b.WriteString("\nNo findings.\n")
@@ -82,9 +82,14 @@ func writeText(w io.Writer, r *scanner.Report) error {
 
 	fmt.Fprintf(&b, "\n%d finding(s):\n", len(r.Findings))
 	for _, f := range r.Findings {
-		fmt.Fprintf(&b, "\n  %s:%d:%d  [%s] %s\n", f.File, f.Line, f.Column, severityLabel(f), f.RuleID)
+		fmt.Fprintf(&b, "\n  %s  [%s] %s\n", location(f), severityLabel(f), f.RuleID)
 		fmt.Fprintf(&b, "    %s\n", f.Description)
-		fmt.Fprintf(&b, "    match: %s\n", oneLine(f.Match))
+		if f.Match != "" {
+			fmt.Fprintf(&b, "    match: %s\n", oneLine(f.Match))
+		}
+		if f.Rationale != "" {
+			fmt.Fprintf(&b, "    why:   %s\n", oneLine(f.Rationale))
+		}
 		if f.Remediation != "" {
 			fmt.Fprintf(&b, "    fix:   %s\n", f.Remediation)
 		}
@@ -110,12 +115,17 @@ func writeMarkdown(w io.Writer, r *scanner.Report) error {
 		return err
 	}
 
-	b.WriteString("\n| Severity | Rule | Location | Finding | Match |\n")
+	b.WriteString("\n| Severity | Rule | Location | Finding | Evidence |\n")
 	b.WriteString("| --- | --- | --- | --- | --- |\n")
 	for _, f := range r.Findings {
-		loc := fmt.Sprintf("%s:%d:%d", f.File, f.Line, f.Column)
+		// Evidence is the matched snippet for static findings; for llm findings,
+		// which often have no snippet, fall back to the judge's rationale.
+		evidence := f.Match
+		if evidence == "" {
+			evidence = f.Rationale
+		}
 		fmt.Fprintf(&b, "| %s | %s | `%s` | %s | %s |\n",
-			severityLabel(f), f.RuleID, loc, mdCell(f.Description), mdCell(oneLine(f.Match)))
+			severityLabel(f), f.RuleID, location(f), mdCell(f.Description), mdCell(oneLine(evidence)))
 	}
 
 	if rem := uniqueRemediations(r.Findings); len(rem) > 0 {
@@ -203,6 +213,20 @@ func uniqueRemediations(findings []scanner.Finding) []remediation {
 		out = append(out, remediation{ruleID: f.RuleID, text: f.Remediation})
 	}
 	return out
+}
+
+// location renders a finding's position as far as it is known: file:line:column,
+// file:line when the column is unknown, or just the file when the line is unknown
+// too (an llm finding the judge could not localize).
+func location(f scanner.Finding) string {
+	switch {
+	case f.Line <= 0:
+		return f.File
+	case f.Column <= 0:
+		return fmt.Sprintf("%s:%d", f.File, f.Line)
+	default:
+		return fmt.Sprintf("%s:%d:%d", f.File, f.Line, f.Column)
+	}
 }
 
 // severityLabel renders a finding's severity, noting when the cautionary-example

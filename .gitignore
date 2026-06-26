@@ -7,5 +7,8 @@
 # Test reports
 coverage.out
 
-# LLM-as-judge result cache
-.gate_cache/
+# LLM-as-judge result cache (opt-in via --cache-dir; never commit it)
+.skill-gate-cache/
+
+# Environment files for local testing
+.env

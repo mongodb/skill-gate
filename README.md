@@ -5,11 +5,11 @@ bundle — not its code — for content that could steer an agent toward unsafe 
 It runs a skill's markdown through a YAML rule pack and produces a single verdict:
 **AUTO-PASS**, **WARN**, or **ESCALATE**.
 
-> **Status: stage 1 implemented.** The CLI (`scan`, `version`, `rules list`,
-> `rules lint`), the static-pattern engine, the `core` + `mongodb` rule packs,
-> and the full output surface needed to gate PRs in CI (`text`, `json`, `markdown`,
-> and GitHub Actions `--emit-annotations`) are working today. The LLM-as-judge stage
-> (stage 2) is forthcoming.
+> **Status: both stages implemented.** The CLI (`scan`, `version`, `rules list`,
+> `rules lint`), the static-pattern engine, the LLM-as-judge stage, the `core` +
+> `mongodb` rule packs, and the full output surface needed to gate PRs in CI
+> (`text`, `json`, `markdown`, and GitHub Actions `--emit-annotations`) are working
+> today.
 
 ## Why it exists
 
@@ -30,8 +30,12 @@ A two-stage pipeline over every markdown file in a skill bundle:
    documentation examples ("never log credentials") to an advisory WARN rather than
    silently dropping them — so a real instruction disguised with cautionary phrasing
    can never slip through to AUTO-PASS.
-2. **LLM-as-judge** *(forthcoming)* — rubric-based evaluation for criteria that need
-   semantic judgment (unsanitized user input, ambiguous scope, missing guardrails).
+2. **LLM-as-judge** *(implemented)* — rubric-based evaluation for criteria that need
+   semantic judgment (unsanitized user input, PII handling, over-broad permissions,
+   admin-command scope, ambiguous scope, missing guardrails). Each `llm_judge` rule carries a rubric and a
+   JSON-schema'd finding contract; the judge fails closed — a refusal, truncation, or
+   invalid response is a tool error, never a silent pass — and caches results per
+   `(model, rule, file)` so unchanged skills aren't re-evaluated.
 
 Each rule declares a severity tier. The verdict is the highest tier any rule triggers:
 
@@ -51,6 +55,7 @@ go install github.com/mongodb/skill-gate/cmd/skill-gate@latest
 
 ```sh
 # Scan a skill bundle (text output; exit code 0/1/2 = AUTO-PASS/WARN/ESCALATE)
+# Stage 2 needs an LLM client (see below); add --static-only to run stage 1 alone.
 skill-gate scan ./my-skill/
 
 # Machine-readable output / PR comment
@@ -63,7 +68,8 @@ skill-gate scan ./my-skill/ --emit-annotations
 # Treat WARN as a blocking exit code (per-repo CI policy)
 skill-gate scan ./my-skill/ --strict
 
-# Filter low-confidence noise: findings below the floor downgrade (ESCALATE→WARN) or drop (WARN)
+# Filter low-confidence static findings: below the floor, ESCALATE→WARN or WARN drops
+# (static stage only; judge confidence is uncalibrated, so the floor doesn't gate it)
 skill-gate scan ./my-skill/ --min-confidence 0.6
 
 # Choose which built-in packs run (default: all)
@@ -72,6 +78,9 @@ skill-gate scan ./my-skill/ --packs none --rules-dir ./rules.d/   # only your pa
 
 # Overlay your own rule packs (added on top of the selected built-ins)
 skill-gate scan ./my-skill/ --rules-dir ./rules.d/
+
+# Run only the static stage (no LLM client required)
+skill-gate scan ./my-skill/ --static-only
 
 # Inspect and validate rule packs
 skill-gate rules list
@@ -83,9 +92,21 @@ to stdout in addition to the chosen `-o` format, so a CI job can both produce a 
 artifact and pin each finding to its line in the diff. The annotation paths are
 resolved relative to the directory the scan is launched from.
 
-Once the LLM-as-judge stage lands, the LLM client will be configured by environment
-(`ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_HEADER`). The static stage
-needs no configuration.
+The LLM-as-judge stage uses a client configured by environment —
+`ANTHROPIC_API_KEY` (required), `ANTHROPIC_BASE_URL` (default
+`https://api.anthropic.com`), and `ANTHROPIC_AUTH_HEADER` (default `x-api-key`; set
+`api-key` for an Azure-fronted gateway) — with the model set by `--llm-model`
+(default `claude-sonnet-4-6`). When the selected packs contain `llm_judge` rules but
+no client is configured, the scan **fails closed** (a tool error) rather than skipping
+them; pass `--static-only` to run stage 1 alone. The static stage needs no
+configuration.
+
+The judge result cache is **opt-in** and off by default (`--cache-dir <path>` enables
+it): its validity is keyed only on public inputs and the author's own content, so a
+committed cache could be forged to force a pass. In CI, point `--cache-dir` at an
+ephemeral, never-committed location (or leave caching off); locally, treat it as
+scratch. Skill content sent to the judge is fenced as untrusted input, so prose that
+tries to talk the judge out of a finding does not change the verdict.
 
 ## Extending it
 
@@ -98,8 +119,9 @@ skill-gate is built to be reusable in other projects:
   overlays). The default runs every built-in pack.
 - **Embed the scanner** *(available now)* — call `scanner.Scan` and read the returned
   `Report`. The `verdict` package is the stable vocabulary for tiers and exit codes.
-- **Bring your own LLM client** *(forthcoming)* — once stage 2 lands, implement the
-  `llm.Client` interface and wire it into `scanner.Scan`.
+- **Bring your own LLM client** *(available now)* — implement the `llm.Client`
+  interface (one `Judge` method) and pass it to `scanner.Scan` via `Config.Client`,
+  e.g. for Bedrock or a custom gateway. See [`examples/custom-client`](examples/custom-client).
 
 See [`docs/architecture.md`](docs/architecture.md) for the package layout and the
 public API surface.

@@ -16,15 +16,19 @@ package scanner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/mongodb/skill-gate/internal/judge"
 	"github.com/mongodb/skill-gate/internal/rules"
 	"github.com/mongodb/skill-gate/internal/static"
+	"github.com/mongodb/skill-gate/llm"
 	builtinpacks "github.com/mongodb/skill-gate/rules"
 	"github.com/mongodb/skill-gate/verdict"
 )
@@ -43,13 +47,36 @@ type Config struct {
 	// RulesDir, when set, overlays external packs loaded from this directory on
 	// top of the selected base packs. A non-existent directory is ignored.
 	RulesDir string
-	// MinConfidence is the per-tier confidence floor for static findings: a match
-	// whose pattern confidence is below the floor for its rule's tier is
-	// suppressed. Suppression is bounded like the cautionary heuristic — an
+	// MinConfidence is the per-tier confidence floor for the static stage: a
+	// static match whose pattern confidence is below the floor for its rule's tier
+	// is suppressed. Suppression is bounded like the cautionary heuristic — an
 	// ESCALATE match downgrades to WARN, a WARN match drops — so raising a floor
 	// can never let a dangerous match reach AUTO-PASS. A nil map (the default)
 	// reports every match. Keys are verdict.SeverityWarn / verdict.SeverityEscalate.
+	//
+	// It does not apply to llm_judge findings: a judge confidence is the model's
+	// uncalibrated self-report, not a comparable authored weight, so gating a tier
+	// on it is unsafe. See package judge.
 	MinConfidence map[verdict.Severity]float64
+
+	// Client is the LLM client the stage-2 judge calls for llm_judge rules. When
+	// nil and the selected packs contain llm_judge rules, Scan fails closed
+	// unless StaticOnly is set — a security gate must not silently skip rules it
+	// cannot evaluate. Supply the default client with llm.NewAnthropicFromEnv, or
+	// bring your own implementation of llm.Client.
+	Client llm.Client
+	// StaticOnly skips stage 2 entirely: only static_regex rules run, and
+	// llm_judge rules are ignored without needing a Client. This is the explicit
+	// opt-out from the fail-closed default.
+	StaticOnly bool
+	// CacheDir, when set, persists per-(rule, file) judge results there so
+	// unchanged skills are not re-evaluated on later runs. Empty disables caching.
+	CacheDir string
+	// LLMConcurrency caps in-flight LLM calls (default judge.DefaultConcurrency).
+	LLMConcurrency int
+	// LLMTimeout is the per-call timeout for each LLM request. Zero means none
+	// beyond the context Scan is given.
+	LLMTimeout time.Duration
 }
 
 // Finding is one rule match in the scanned bundle. File is relative to the
@@ -71,6 +98,11 @@ type Finding struct {
 	Match       string  `json:"match"`
 	Confidence  float64 `json:"confidence"`
 	Remediation string  `json:"remediation,omitempty"`
+	// Source is the stage that produced the finding: "static" or "llm".
+	Source string `json:"source"`
+	// Rationale is the judge's explanation for an llm-sourced finding; empty for
+	// static findings.
+	Rationale string `json:"rationale,omitempty"`
 }
 
 // Report is the result of a scan and mirrors the -o json schema.
@@ -81,6 +113,13 @@ type Report struct {
 	RulesApplied int             `json:"rules_applied"`
 	Findings     []Finding       `json:"findings"`
 }
+
+// ErrNoLLMClient reports that the selected packs contain llm_judge rules but no
+// Config.Client was supplied and StaticOnly was not set. It is provider-agnostic
+// on purpose: the bring-your-own-client seam means the scanner cannot assume
+// Anthropic or any particular provider. Callers (e.g. the CLI) can match it with
+// errors.Is to add provider-specific guidance.
+var ErrNoLLMClient = errors.New("no LLM client configured for the LLM-judge stage")
 
 // markdown file extensions that constitute scannable skill content.
 var markdownExts = map[string]bool{".md": true, ".markdown": true}
@@ -115,7 +154,11 @@ func Scan(ctx context.Context, path string, cfg Config) (*Report, error) {
 		FilesScanned: len(files),
 		RulesApplied: engine.RuleCount(),
 	}
+
+	// Stage 1: static rules. Read each file once and keep its content so stage 2
+	// can judge the same bytes without a second read.
 	var severities []verdict.Severity
+	judgeFiles := make([]judge.File, 0, len(files))
 	for _, f := range files {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -124,14 +167,50 @@ func Scan(ctx context.Context, path string, cfg Config) (*Report, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", f.abs, err)
 		}
-		for _, sf := range engine.ScanFile(f.rel, string(content)) {
+		text := string(content)
+		for _, sf := range engine.ScanFile(f.rel, text) {
 			report.Findings = append(report.Findings, toFinding(sf))
 			severities = append(severities, sf.Severity)
 		}
+		judgeFiles = append(judgeFiles, judge.File{Path: f.rel, Content: text})
 	}
+
+	// Stage 2: LLM-as-judge, unless opted out. Fail closed when the selected
+	// packs carry llm_judge rules but no client can run them.
+	if !cfg.StaticOnly {
+		je := judge.NewEngine(packs, cfg.Client,
+			judge.WithConcurrency(cfg.LLMConcurrency),
+			judge.WithTimeout(cfg.LLMTimeout),
+			judge.WithCache(cacheFor(cfg.CacheDir)),
+		)
+		if n := je.RuleCount(); n > 0 {
+			if cfg.Client == nil {
+				return nil, fmt.Errorf("%w: %d llm_judge rule(s) selected — set Config.Client or Config.StaticOnly", ErrNoLLMClient, n)
+			}
+			jfindings, err := je.ScanFiles(ctx, judgeFiles)
+			if err != nil {
+				return nil, err
+			}
+			for _, jf := range jfindings {
+				report.Findings = append(report.Findings, toJudgeFinding(jf))
+				severities = append(severities, jf.Severity)
+			}
+			report.RulesApplied += n
+		}
+	}
+
 	sortFindings(report.Findings)
 	report.Verdict = verdict.FromSeverities(severities)
 	return report, nil
+}
+
+// cacheFor returns a judge cache rooted at dir, or nil when dir is empty
+// (caching disabled).
+func cacheFor(dir string) *judge.Cache {
+	if dir == "" {
+		return nil
+	}
+	return judge.NewCache(dir)
 }
 
 // scanFile is a bundle file with both its absolute path (for reading) and its
@@ -188,6 +267,27 @@ func toFinding(f static.Finding) Finding {
 		Match:       f.Match,
 		Confidence:  f.Confidence,
 		Remediation: f.Remediation,
+		Source:      "static",
+	}
+}
+
+func toJudgeFinding(f judge.Finding) Finding {
+	// Judge findings are never downgraded (the floor is static-only), so
+	// Downgraded is left false.
+	return Finding{
+		RuleID:      f.RuleID,
+		Pack:        f.Pack,
+		Description: f.Description,
+		Severity:    f.Severity,
+		Criterion:   f.Criterion,
+		File:        f.File,
+		Line:        f.Line,
+		Column:      f.Column,
+		Match:       f.Match,
+		Confidence:  f.Confidence,
+		Remediation: f.Remediation,
+		Source:      "llm",
+		Rationale:   f.Rationale,
 	}
 }
 
