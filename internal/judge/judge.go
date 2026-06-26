@@ -7,7 +7,8 @@
 // Package judge is stage 2 of the pipeline: it runs each llm_judge rule over the
 // markdown content of a bundle through an llm.Client, turning a fired judgment
 // into a finding at the rule's declared tier. It owns a bounded worker pool, a
-// per-call timeout, and the per-(rule, content) result cache.
+// per-call timeout, and the per-(model, rule, file) result cache (whose entries
+// are invalidated by content and rule hashes — see cache.go).
 //
 // The stage is fail-closed: any client error (network failure, refusal,
 // truncation, an unparseable or schema-invalid response) aborts the scan rather

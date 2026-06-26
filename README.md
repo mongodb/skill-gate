@@ -31,8 +31,8 @@ A two-stage pipeline over every markdown file in a skill bundle:
    silently dropping them — so a real instruction disguised with cautionary phrasing
    can never slip through to AUTO-PASS.
 2. **LLM-as-judge** *(implemented)* — rubric-based evaluation for criteria that need
-   semantic judgment (unsanitized user input, PII handling, admin-command scope,
-   ambiguous scope, missing guardrails). Each `llm_judge` rule carries a rubric and a
+   semantic judgment (unsanitized user input, PII handling, over-broad permissions,
+   admin-command scope, ambiguous scope, missing guardrails). Each `llm_judge` rule carries a rubric and a
    JSON-schema'd finding contract; the judge fails closed — a refusal, truncation, or
    invalid response is a tool error, never a silent pass — and caches results per
    `(model, rule, file)` so unchanged skills aren't re-evaluated.

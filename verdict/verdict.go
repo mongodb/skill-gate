@@ -81,7 +81,13 @@ func Bound(declared Severity, suppressed bool) (tier Severity, downgraded, drop 
 	if declared == SeverityEscalate {
 		return SeverityWarn, true, false
 	}
-	return declared, false, true
+	if declared == SeverityWarn {
+		return declared, false, true
+	}
+	// Any other tier (incl. a future one) is kept at its declared level rather
+	// than dropped: for a security boundary, an unexpected suppressed match must
+	// stay visible, never silently vanish.
+	return declared, false, false
 }
 
 // FromSeverities returns the max-tier verdict across the severities of the

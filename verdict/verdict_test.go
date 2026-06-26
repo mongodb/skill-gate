@@ -60,3 +60,31 @@ func TestSeverityValid(t *testing.T) {
 		}
 	}
 }
+
+func TestBound(t *testing.T) {
+	tests := []struct {
+		name       string
+		declared   Severity
+		suppressed bool
+		wantTier   Severity
+		wantDown   bool
+		wantDrop   bool
+	}{
+		{"not suppressed passes through (escalate)", SeverityEscalate, false, SeverityEscalate, false, false},
+		{"not suppressed passes through (warn)", SeverityWarn, false, SeverityWarn, false, false},
+		{"suppressed escalate downgrades to warn", SeverityEscalate, true, SeverityWarn, true, false},
+		{"suppressed warn drops", SeverityWarn, true, SeverityWarn, false, true},
+		// Fail-safe: an unexpected/unknown suppressed tier is kept at its declared
+		// level — never downgraded and never silently dropped.
+		{"suppressed unknown tier is kept", Severity("INFO"), true, Severity("INFO"), false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tier, down, drop := Bound(tt.declared, tt.suppressed)
+			if tier != tt.wantTier || down != tt.wantDown || drop != tt.wantDrop {
+				t.Errorf("Bound(%q, %v) = (%q, %v, %v), want (%q, %v, %v)",
+					tt.declared, tt.suppressed, tier, down, drop, tt.wantTier, tt.wantDown, tt.wantDrop)
+			}
+		})
+	}
+}
