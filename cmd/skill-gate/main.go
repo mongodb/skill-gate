@@ -32,7 +32,7 @@ func main() {
 // `go install <module>@<tag>` sets it to the tag (e.g. v0.1.0) and a local
 // `go build` in the repo sets a VCS pseudo-version — both with no ldflags. It
 // falls back to the ldflags-injected version (or "dev") only when build info
-// carries no version at all.
+// carries no usable version — absent, or the "(devel)" placeholder.
 func resolveVersion() string {
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		if v := bi.Main.Version; v != "" && v != "(devel)" {

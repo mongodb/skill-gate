@@ -16,7 +16,7 @@ is just pushing a semver tag.**
 
 - Tags are semver with a leading `v`: `vMAJOR.MINOR.PATCH` (e.g. `v0.1.0`).
 - Pre-1.0 (`v0.x`): treat minor bumps as potentially breaking.
-- `go install …@vX.Y.Z` resolves the tag via the Go module proxy. A GitHub
+- A tagged version (`@vX.Y.Z`) resolves via the Go module proxy. A GitHub
   *Release* object is **not** required — it's a separate, optional UI layer
   (release notes / attached binaries), and `go install` never looks at it.
 

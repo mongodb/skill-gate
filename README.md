@@ -143,8 +143,8 @@ pre-commit hook and CI.
 ## Releasing
 
 skill-gate ships as a Go module — a release is just a pushed semver tag, with no
-build pipeline (`go install …@vX.Y.Z` compiles from source and the binary reads
-its version from build info). See [RELEASING.md](RELEASING.md).
+build pipeline: installing at a tag compiles from source, and the binary reads
+its version from build info. See [RELEASING.md](RELEASING.md).
 
 ## License
 
