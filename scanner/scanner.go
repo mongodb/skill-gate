@@ -21,6 +21,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -163,7 +164,7 @@ func Scan(ctx context.Context, path string, cfg Config) (*Report, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		content, err := os.ReadFile(f.abs)
+		content, err := readRegularFile(f.abs)
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", f.abs, err)
 		}
@@ -220,15 +221,26 @@ type scanFile struct {
 	rel string
 }
 
-// markdownFiles returns the markdown files to scan under path. A single file is
-// returned as-is — its extension is not checked, since the caller named it
-// explicitly — while a directory is walked recursively and filtered to markdown.
+// markdownFiles returns the markdown files to scan under path. Symlinks are not
+// supported because the scanner must never read outside the requested bundle.
+// A single file is returned as-is — its extension is not checked, since the
+// caller named it explicitly — while a directory is walked recursively and
+// filtered to markdown.
 func markdownFiles(path string) ([]scanFile, error) {
-	info, err := os.Stat(path)
+	if err := rejectSymlinkComponents(path); err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(path)
 	if err != nil {
-		return nil, fmt.Errorf("stat %s: %w", path, err)
+		return nil, fmt.Errorf("lstat %s: %w", path, err)
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return nil, fmt.Errorf("symlink paths are unsupported: %s", path)
 	}
 	if !info.IsDir() {
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("scan path is not a regular file: %s", path)
+		}
 		return []scanFile{{abs: path, rel: filepath.Base(path)}}, nil
 	}
 	var files []scanFile
@@ -236,8 +248,21 @@ func markdownFiles(path string) ([]scanFile, error) {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !markdownExts[strings.ToLower(filepath.Ext(p))] {
+		if d.Type()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("symlink paths are unsupported: %s", p)
+		}
+		if d.IsDir() {
 			return nil
+		}
+		if !markdownExts[strings.ToLower(filepath.Ext(p))] {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("inspect %s: %w", p, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("scan entry is not a regular file: %s", p)
 		}
 		rel, err := filepath.Rel(path, p)
 		if err != nil {
@@ -251,6 +276,33 @@ func markdownFiles(path string) ([]scanFile, error) {
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].rel < files[j].rel })
 	return files, nil
+}
+
+func rejectSymlinkComponents(path string) error {
+	var components []string
+	for current := filepath.Clean(path); ; current = filepath.Dir(current) {
+		components = append(components, current)
+		if parent := filepath.Dir(current); parent == current {
+			break
+		}
+	}
+	for i := len(components) - 1; i >= 0; i-- {
+		info, err := os.Lstat(components[i])
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			return fmt.Errorf("lstat %s: %w", components[i], err)
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			// macOS exposes /var as a system alias for /private/var.
+			if runtime.GOOS == "darwin" && components[i] == "/var" {
+				continue
+			}
+			return fmt.Errorf("symlink paths are unsupported: %s", components[i])
+		}
+	}
+	return nil
 }
 
 func toFinding(f static.Finding) Finding {

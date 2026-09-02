@@ -9,6 +9,7 @@ package scanner_test
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -181,6 +182,137 @@ func TestScanMissingBundle(t *testing.T) {
 	if _, err := scanner.Scan(context.Background(), "../testdata/does-not-exist", scanner.Config{StaticOnly: true}); err == nil {
 		t.Error("expected error for missing bundle, got nil")
 	}
+}
+
+func TestScanRejectsSymlinks(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "outside.md")
+	if err := os.WriteFile(target, []byte("outside content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name string
+		make func(string) error
+	}{
+		{
+			name: "absolute file symlink",
+			make: func(bundle string) error {
+				return createSymlink(t, target, filepath.Join(bundle, "absolute.md"))
+			},
+		},
+		{
+			name: "relative file symlink",
+			make: func(bundle string) error {
+				relative, err := filepath.Rel(bundle, target)
+				if err != nil {
+					return err
+				}
+				return createSymlink(t, relative, filepath.Join(bundle, "relative.md"))
+			},
+		},
+		{
+			name: "symlink chain",
+			make: func(bundle string) error {
+				relative, err := filepath.Rel(bundle, target)
+				if err != nil {
+					return err
+				}
+				first := filepath.Join(bundle, "first.md")
+				if err := createSymlink(t, relative, first); err != nil {
+					return err
+				}
+				return createSymlink(t, "first.md", filepath.Join(bundle, "second.md"))
+			},
+		},
+		{
+			name: "directory symlink",
+			make: func(bundle string) error {
+				return createSymlink(t, targetDir(t), filepath.Join(bundle, "linked-dir"))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bundle := t.TempDir()
+			if err := tt.make(bundle); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := scanner.Scan(context.Background(), bundle, scanner.Config{StaticOnly: true}); err == nil {
+				t.Fatal("expected symlink scan to fail")
+			} else if !strings.Contains(err.Error(), "symlink paths are unsupported") {
+				t.Fatalf("error = %v, want symlink rejection", err)
+			}
+		})
+	}
+}
+
+func TestScanRejectsSymlinkRootAndExplicitFile(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "outside.md")
+	if err := os.WriteFile(target, []byte("outside content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rootLink := filepath.Join(t.TempDir(), "bundle-link")
+	if err := createSymlink(t, filepath.Dir(target), rootLink); err != nil {
+		t.Fatal(err)
+	}
+	fileLink := filepath.Join(t.TempDir(), "file-link.md")
+	if err := createSymlink(t, target, fileLink); err != nil {
+		t.Fatal(err)
+	}
+	parentLink := filepath.Join(t.TempDir(), "parent-link")
+	if err := createSymlink(t, filepath.Dir(target), parentLink); err != nil {
+		t.Fatal(err)
+	}
+	nestedPath := filepath.Join(parentLink, filepath.Base(target))
+
+	for _, path := range []string{rootLink, fileLink, nestedPath} {
+		if _, err := scanner.Scan(context.Background(), path, scanner.Config{StaticOnly: true}); err == nil {
+			t.Errorf("scan %s unexpectedly succeeded", path)
+		} else if !strings.Contains(err.Error(), "symlink paths are unsupported") {
+			t.Errorf("scan %s error = %v, want symlink rejection", path, err)
+		}
+	}
+}
+
+func TestScanRejectsNonRegularFiles(t *testing.T) {
+	bundle := t.TempDir()
+	socketPath := filepath.Join(bundle, "socket.md")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Skipf("Unix sockets are unsupported: %v", err)
+	}
+	defer func() {
+		_ = listener.Close()
+	}()
+
+	for _, path := range []string{socketPath, bundle} {
+		if _, err := scanner.Scan(context.Background(), path, scanner.Config{StaticOnly: true}); err == nil {
+			t.Errorf("scan %s unexpectedly succeeded", path)
+		} else if !strings.Contains(err.Error(), "not a regular file") {
+			t.Errorf("scan %s error = %v, want non-regular-file rejection", path, err)
+		}
+	}
+}
+
+func createSymlink(t *testing.T, target, link string) error {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		if os.IsPermission(err) {
+			t.Skipf("symlink creation is not permitted: %v", err)
+		}
+		return err
+	}
+	return nil
+}
+
+func targetDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "nested.md"), []byte("nested\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 func TestScanUnknownPackErrors(t *testing.T) {
