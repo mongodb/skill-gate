@@ -4,7 +4,7 @@
 // not use this file except in compliance with the License. You may obtain
 // a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
-//go:build darwin || linux
+//go:build windows
 
 package scanner
 
@@ -12,17 +12,30 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"syscall"
+
+	"golang.org/x/sys/windows"
 )
 
 func readRegularFile(path string) ([]byte, error) {
-	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0)
+	name, err := windows.UTF16PtrFromString(path)
 	if err != nil {
 		return nil, err
 	}
-	file := os.NewFile(uintptr(fd), path)
+	handle, err := windows.CreateFile(
+		name,
+		windows.GENERIC_READ,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil,
+		windows.OPEN_EXISTING,
+		windows.FILE_ATTRIBUTE_NORMAL|windows.FILE_FLAG_OPEN_REPARSE_POINT|windows.FILE_FLAG_BACKUP_SEMANTICS,
+		0,
+	)
+	if err != nil {
+		return nil, err
+	}
+	file := os.NewFile(uintptr(handle), path)
 	if file == nil {
-		_ = syscall.Close(fd)
+		_ = windows.CloseHandle(handle)
 		return nil, fmt.Errorf("open %s: create file handle", path)
 	}
 	defer func() {

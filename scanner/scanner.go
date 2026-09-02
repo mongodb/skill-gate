@@ -250,15 +250,15 @@ func markdownFiles(path string) ([]scanFile, error) {
 		if d.IsDir() {
 			return nil
 		}
+		if !markdownExts[strings.ToLower(filepath.Ext(p))] {
+			return nil
+		}
 		info, err := d.Info()
 		if err != nil {
 			return fmt.Errorf("inspect %s: %w", p, err)
 		}
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("scan entry is not a regular file: %s", p)
-		}
-		if !markdownExts[strings.ToLower(filepath.Ext(p))] {
-			return nil
 		}
 		rel, err := filepath.Rel(path, p)
 		if err != nil {
