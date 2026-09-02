@@ -196,7 +196,7 @@ func TestScanRejectsSymlinks(t *testing.T) {
 		{
 			name: "absolute file symlink",
 			make: func(bundle string) error {
-				return os.Symlink(target, filepath.Join(bundle, "absolute.md"))
+				return createSymlink(t, target, filepath.Join(bundle, "absolute.md"))
 			},
 		},
 		{
@@ -206,7 +206,7 @@ func TestScanRejectsSymlinks(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				return os.Symlink(relative, filepath.Join(bundle, "relative.md"))
+				return createSymlink(t, relative, filepath.Join(bundle, "relative.md"))
 			},
 		},
 		{
@@ -217,16 +217,16 @@ func TestScanRejectsSymlinks(t *testing.T) {
 					return err
 				}
 				first := filepath.Join(bundle, "first.md")
-				if err := os.Symlink(relative, first); err != nil {
+				if err := createSymlink(t, relative, first); err != nil {
 					return err
 				}
-				return os.Symlink("first.md", filepath.Join(bundle, "second.md"))
+				return createSymlink(t, "first.md", filepath.Join(bundle, "second.md"))
 			},
 		},
 		{
 			name: "directory symlink",
 			make: func(bundle string) error {
-				return os.Symlink(targetDir(t), filepath.Join(bundle, "linked-dir"))
+				return createSymlink(t, targetDir(t), filepath.Join(bundle, "linked-dir"))
 			},
 		},
 	}
@@ -252,11 +252,11 @@ func TestScanRejectsSymlinkRootAndExplicitFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	rootLink := filepath.Join(t.TempDir(), "bundle-link")
-	if err := os.Symlink(filepath.Dir(target), rootLink); err != nil {
+	if err := createSymlink(t, filepath.Dir(target), rootLink); err != nil {
 		t.Fatal(err)
 	}
 	fileLink := filepath.Join(t.TempDir(), "file-link.md")
-	if err := os.Symlink(target, fileLink); err != nil {
+	if err := createSymlink(t, target, fileLink); err != nil {
 		t.Fatal(err)
 	}
 
@@ -267,6 +267,17 @@ func TestScanRejectsSymlinkRootAndExplicitFile(t *testing.T) {
 			t.Errorf("scan %s error = %v, want symlink rejection", path, err)
 		}
 	}
+}
+
+func createSymlink(t *testing.T, target, link string) error {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		if os.IsPermission(err) {
+			t.Skipf("symlink creation is not permitted: %v", err)
+		}
+		return err
+	}
+	return nil
 }
 
 func targetDir(t *testing.T) string {

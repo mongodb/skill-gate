@@ -228,7 +228,7 @@ type scanFile struct {
 func markdownFiles(path string) ([]scanFile, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
-		return nil, fmt.Errorf("stat %s: %w", path, err)
+		return nil, fmt.Errorf("lstat %s: %w", path, err)
 	}
 	if info.Mode()&fs.ModeSymlink != 0 {
 		return nil, fmt.Errorf("symlink paths are unsupported: %s", path)
