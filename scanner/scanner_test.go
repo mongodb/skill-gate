@@ -9,6 +9,7 @@ package scanner_test
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -270,6 +271,26 @@ func TestScanRejectsSymlinkRootAndExplicitFile(t *testing.T) {
 			t.Errorf("scan %s unexpectedly succeeded", path)
 		} else if !strings.Contains(err.Error(), "symlink paths are unsupported") {
 			t.Errorf("scan %s error = %v, want symlink rejection", path, err)
+		}
+	}
+}
+
+func TestScanRejectsNonRegularFiles(t *testing.T) {
+	bundle := t.TempDir()
+	socketPath := filepath.Join(bundle, "socket.md")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Skipf("Unix sockets are unsupported: %v", err)
+	}
+	defer func() {
+		_ = listener.Close()
+	}()
+
+	for _, path := range []string{socketPath, bundle} {
+		if _, err := scanner.Scan(context.Background(), path, scanner.Config{StaticOnly: true}); err == nil {
+			t.Errorf("scan %s unexpectedly succeeded", path)
+		} else if !strings.Contains(err.Error(), "not a regular file") {
+			t.Errorf("scan %s error = %v, want non-regular-file rejection", path, err)
 		}
 	}
 }
