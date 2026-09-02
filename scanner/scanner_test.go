@@ -259,8 +259,13 @@ func TestScanRejectsSymlinkRootAndExplicitFile(t *testing.T) {
 	if err := createSymlink(t, target, fileLink); err != nil {
 		t.Fatal(err)
 	}
+	parentLink := filepath.Join(t.TempDir(), "parent-link")
+	if err := createSymlink(t, filepath.Dir(target), parentLink); err != nil {
+		t.Fatal(err)
+	}
+	nestedPath := filepath.Join(parentLink, filepath.Base(target))
 
-	for _, path := range []string{rootLink, fileLink} {
+	for _, path := range []string{rootLink, fileLink, nestedPath} {
 		if _, err := scanner.Scan(context.Background(), path, scanner.Config{StaticOnly: true}); err == nil {
 			t.Errorf("scan %s unexpectedly succeeded", path)
 		} else if !strings.Contains(err.Error(), "symlink paths are unsupported") {

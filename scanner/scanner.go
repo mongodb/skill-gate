@@ -21,6 +21,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -226,6 +227,9 @@ type scanFile struct {
 // caller named it explicitly — while a directory is walked recursively and
 // filtered to markdown.
 func markdownFiles(path string) ([]scanFile, error) {
+	if err := rejectSymlinkComponents(path); err != nil {
+		return nil, err
+	}
 	info, err := os.Lstat(path)
 	if err != nil {
 		return nil, fmt.Errorf("lstat %s: %w", path, err)
@@ -272,6 +276,33 @@ func markdownFiles(path string) ([]scanFile, error) {
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].rel < files[j].rel })
 	return files, nil
+}
+
+func rejectSymlinkComponents(path string) error {
+	var components []string
+	for current := filepath.Clean(path); ; current = filepath.Dir(current) {
+		components = append(components, current)
+		if parent := filepath.Dir(current); parent == current {
+			break
+		}
+	}
+	for i := len(components) - 1; i >= 0; i-- {
+		info, err := os.Lstat(components[i])
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			return fmt.Errorf("lstat %s: %w", components[i], err)
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			// macOS exposes /var as a system alias for /private/var.
+			if runtime.GOOS == "darwin" && components[i] == "/var" {
+				continue
+			}
+			return fmt.Errorf("symlink paths are unsupported: %s", components[i])
+		}
+	}
+	return nil
 }
 
 func toFinding(f static.Finding) Finding {
