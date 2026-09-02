@@ -45,6 +45,11 @@ Each rule declares a severity tier. The verdict is the highest tier any rule tri
 | WARN | `1` | Advisory findings; author resolves before opening a PR. |
 | ESCALATE | `2` | Blocking findings; requires security review. |
 
+Symlinks are unsupported by the security scanner. A bundle root, recursive entry,
+or explicitly supplied scan file that is a symlink is rejected rather than
+following the link. Scanned files are opened without following final-component
+symlinks where the platform supports it and are required to be regular files.
+
 ## Install
 
 ```sh

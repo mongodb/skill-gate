@@ -163,7 +163,7 @@ func Scan(ctx context.Context, path string, cfg Config) (*Report, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		content, err := os.ReadFile(f.abs)
+		content, err := readRegularFile(f.abs)
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", f.abs, err)
 		}
@@ -220,15 +220,23 @@ type scanFile struct {
 	rel string
 }
 
-// markdownFiles returns the markdown files to scan under path. A single file is
-// returned as-is — its extension is not checked, since the caller named it
-// explicitly — while a directory is walked recursively and filtered to markdown.
+// markdownFiles returns the markdown files to scan under path. Symlinks are not
+// supported because the scanner must never read outside the requested bundle.
+// A single file is returned as-is — its extension is not checked, since the
+// caller named it explicitly — while a directory is walked recursively and
+// filtered to markdown.
 func markdownFiles(path string) ([]scanFile, error) {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if err != nil {
 		return nil, fmt.Errorf("stat %s: %w", path, err)
 	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return nil, fmt.Errorf("symlink paths are unsupported: %s", path)
+	}
 	if !info.IsDir() {
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("scan path is not a regular file: %s", path)
+		}
 		return []scanFile{{abs: path, rel: filepath.Base(path)}}, nil
 	}
 	var files []scanFile
@@ -236,7 +244,20 @@ func markdownFiles(path string) ([]scanFile, error) {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !markdownExts[strings.ToLower(filepath.Ext(p))] {
+		if d.Type()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("symlink paths are unsupported: %s", p)
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("inspect %s: %w", p, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("scan entry is not a regular file: %s", p)
+		}
+		if !markdownExts[strings.ToLower(filepath.Ext(p))] {
 			return nil
 		}
 		rel, err := filepath.Rel(path, p)
