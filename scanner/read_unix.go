@@ -12,17 +12,18 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 func readRegularFile(path string) ([]byte, error) {
-	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0)
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return nil, err
 	}
 	file := os.NewFile(uintptr(fd), path)
 	if file == nil {
-		_ = syscall.Close(fd)
+		_ = unix.Close(fd)
 		return nil, fmt.Errorf("open %s: create file handle", path)
 	}
 	defer func() {
